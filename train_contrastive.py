@@ -12,6 +12,8 @@ if __name__ == '__main__':
             'NUM_SIMULATION': None,
             'LOG_EVALUATION': 250,
             'SAVE_MODEL': True,
+            'INCREASE': True,
+            'TRAIN_MODEL': True,
             'SAVE_RESULTS_PATH': 'experiment'
         }
     )
@@ -20,7 +22,6 @@ if __name__ == '__main__':
     PARAMS_LGB = {
         'tree_learner': 'voting',
         'boosting_type': 'gbdt',
-        #this will be overwrite if augment
         'objective': 'binary',
         'metric': 'auc',
         'n_jobs': -1,
@@ -31,16 +32,17 @@ if __name__ == '__main__':
         'bagging_fraction': 0.80,
         'lambda_l2': 1,
         'verbosity': -1,
-        'n_round': 1000,
+        'n_round': 1500,
     }
     feature_list = config_project['ORIGINAL_FEATURE']
     
-    run_tabular_experiment(
-        config_experiment=config_project, params_lgb=PARAMS_LGB, 
-        feature_list=feature_list,
-        num_simulation=config_project['NUM_SIMULATION'],
-        target_col=config_project['TARGET_COL'], 
-    )
+    if config_project['TRAIN_MODEL']:
+        run_tabular_experiment(
+            config_experiment=config_project, params_lgb=PARAMS_LGB, 
+            feature_list=feature_list,
+            num_simulation=config_project['NUM_SIMULATION'],
+            target_col=config_project['TARGET_COL'], 
+        )
     if config_project['SAVE_MODEL']:
         evaluate_experiment_score(
             config_experiment=config_project, params_lgb=PARAMS_LGB, 

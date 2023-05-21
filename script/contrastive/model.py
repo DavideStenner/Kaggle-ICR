@@ -9,11 +9,11 @@ import seaborn as sns
 import lightgbm as lgb
 import matplotlib.pyplot as plt
 
-from typing import Tuple, Callable
-from functools import partial
+from typing import Tuple
+
 from sklearn.metrics import roc_auc_score
 
-from script.contrastive.augment import contrastive_pipeline
+from script.contrastive.augment import contrastive_pipeline, fe_pipeline, fe_new_col_name
 from script.contrastive.loss import competition_log_loss
 
 def get_dataset(
@@ -46,8 +46,8 @@ def get_augment_dataset(
         original_tgt_label=target_col,
         num_simulation=num_simulation, inference=inference 
     )
-        
-    train_x = data[feature_list].to_numpy('float32')
+    used_col = feature_list + fe_new_col_name()
+    train_x = data[used_col].to_numpy('float32')
     train_y = data['target_contrast'].to_numpy('float32')
 
     lgb_dataset = lgb.Dataset(train_x, train_y)
@@ -180,24 +180,32 @@ def evaluate_experiment_score(
 
     progress_dict_lgb.update(
             {
-                f'auc_fold_{i}': progress_list_lgb[i]['valid']['auc']
+                f"{params_lgb['metric']}_fold_{i}": progress_list_lgb[i]['valid'][params_lgb['metric']]
                 for i in range(config_experiment['N_FOLD'])
             }
         )
 
     progress_df_lgb = pd.DataFrame(progress_dict_lgb)
 
-    progress_df_lgb['average_auc'] = progress_df_lgb.loc[
-        :, ['auc' in x for x in progress_df_lgb.columns]
+    progress_df_lgb[f"average_{params_lgb['metric']}"] = progress_df_lgb.loc[
+        :, [params_lgb['metric'] in x for x in progress_df_lgb.columns]
     ].mean(axis =1)
     
-    progress_df_lgb['std_auc'] = progress_df_lgb.loc[
-        :, ['auc' in x for x in progress_df_lgb.columns]
+    progress_df_lgb[f"std_{params_lgb['metric']}"] = progress_df_lgb.loc[
+        :, [params_lgb['metric'] in x for x in progress_df_lgb.columns]
     ].std(axis =1)
 
-    best_epoch_lgb = int(progress_df_lgb['average_auc'].argmax())
-    best_score_lgb = progress_df_lgb['average_auc'].max()
-    lgb_std = progress_df_lgb.loc[best_epoch_lgb, 'std_auc']
+    best_epoch_lgb = (
+        int(progress_df_lgb[f"average_{params_lgb['metric']}"].argmax())
+        if config_experiment['INCREASE'] else
+        int(progress_df_lgb[f"average_{params_lgb['metric']}"].argmin())
+    )
+    best_score_lgb = progress_df_lgb.loc[
+        best_epoch_lgb,
+        f"average_{params_lgb['metric']}"].max()
+    lgb_std = progress_df_lgb.loc[
+        best_epoch_lgb, f"std_{params_lgb['metric']}"
+    ]
 
     print(f'Best epoch: {best_epoch_lgb}, CV-Auc: {best_score_lgb:.5f} ± {lgb_std:.5f}')
 
@@ -257,14 +265,16 @@ def get_retrieval_score(
         retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list)
         retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list)
 
+        used_feature = feature_list + fe_new_col_name()
+
         retrieval_dataset_0['pred'] = model_list_lgb[fold_].predict(
-            retrieval_dataset_0[feature_list], 
+            retrieval_dataset_0[used_feature], 
             num_iteration = best_result_lgb['best_epoch']
         )
         pred_0 = retrieval_dataset_0.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
 
         retrieval_dataset_1['pred'] = model_list_lgb[fold_].predict(
-            retrieval_dataset_1[feature_list],
+            retrieval_dataset_1[used_feature],
             num_iteration = best_result_lgb['best_epoch']
         )
         pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
@@ -279,7 +289,7 @@ def get_retrieval_score(
 def get_retrieval_dataset(
         test: pd.DataFrame, target_example: pd.DataFrame, 
         feature_list:list
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, list]:
 
     test_shape = test.shape[0]
     target_example_shape = target_example.shape[0]
@@ -295,13 +305,12 @@ def get_retrieval_dataset(
     test_x = np.repeat(test_x, target_example_shape, axis=0)
     index_test = np.repeat(test.index.values, target_example_shape, axis=0)
 
-    retrieval_dataset = pd.DataFrame(
-        np.abs(
-            target_example - 
-            test_x
-        ), columns=feature_list
+    retrieval_dataset = fe_pipeline(
+        dataset_1=target_example,
+        dataset_2=test_x, feature_list=feature_list,
     )
     retrieval_dataset['rows'] = index_test
+
     return retrieval_dataset
 
 def explain_model(
@@ -315,7 +324,7 @@ def explain_model(
     )
     
     feature_importances = pd.DataFrame()
-    feature_importances['feature'] = feature_list
+    feature_importances['feature'] = feature_list + fe_new_col_name()
 
     for fold_, model in enumerate(model_list_lgb):
         feature_importances[f'fold_{fold_}'] = model.feature_importance(
