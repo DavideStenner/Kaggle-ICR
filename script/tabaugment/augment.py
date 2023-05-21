@@ -2,12 +2,18 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-def NormalizeData(
+def normalize_data(
         data: pd.DataFrame, 
-        min: float, max: float, new_min: float = 0., new_max: float = 1.
+        new_min: float = 0., new_max: float = 1.
     )-> pd.DataFrame:
     
-    return ((data - min) / (max - min)) * (new_max-new_min) + new_min
+    min_, max_ = data.min(), data.max()
+    
+    return ((data - min_) / (max_ - min_)) * (new_max-new_min) + new_min
+
+def binarize_data(data: pd.DataFrame) -> pd.DataFrame:
+    threshold_ = data.median()
+    return (data >= threshold_).astype(int)
 
 def simulate_index(
         number_possible_sample: int, pretraining_step: int, 
@@ -47,9 +53,6 @@ def tabaugment(
     ) -> pd.DataFrame:
 
     print(f'Applying tabaugmentation')
-    #calculate dictionary to rescale
-    min_dict = {col: data[col].min() for col in feature_list}
-    max_dict = {col: data[col].max() for col in feature_list}
 
     data['selected_target'] = -1
     data['target_as_feature'] = np.nan
@@ -60,9 +63,10 @@ def tabaugment(
 
     #random extraction
     number_possible_sample = len(row_index_not_na)
-    if (replace_sampling) & (pretraining_step > number_possible_sample):
+    if (not replace_sampling) & (pretraining_step > number_possible_sample):
         print(f'Replacing pretraining_step with maximum number allowed {number_possible_sample}')
-          
+        pretraining_step = number_possible_sample
+
     simulated_index = simulate_index(
         number_possible_sample=number_possible_sample,
         pretraining_step=pretraining_step,
@@ -80,11 +84,7 @@ def tabaugment(
     rescaled_simulated_df = simulated_df.copy()
 
     for col in feature_list:
-        rescaled_simulated_df[col] = NormalizeData(
-            rescaled_simulated_df[col], 
-            min_dict[col], 
-            max_dict[col]
-        )
+        rescaled_simulated_df[col] = binarize_data(rescaled_simulated_df[col])
 
     print('Adding augmentation')
     for i in tqdm(range(number_simulation), total=number_simulation):

@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 from typing import Tuple, Callable
 from functools import partial
 
-from script.loss import lgb_metric, lgb_augment_metric, table_augmentation_logloss
-from script.augment import pipeline_tabaugmentation
+from script.tabaugment.loss import lgb_metric, lgb_augment_metric, table_augmentation_logloss
+from script.tabaugment.augment import pipeline_tabaugmentation
 
 AUGMENT_FEATURE = ['selected_target'] #'target_as_feature'
 

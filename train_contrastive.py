@@ -1,6 +1,6 @@
 import json
 
-from script.tabaugment.model import run_tabular_experiment, evaluate_experiment_score
+from script.contrastive.model import run_tabular_experiment, evaluate_experiment_score
 
 if __name__ == '__main__':
     with open('config.json') as config_file:
@@ -8,9 +8,8 @@ if __name__ == '__main__':
     
     config_project.update(
         {
-            'NAME': 'lgb',
-            'AUGMENT': True,
-            'NUM_AUGMENT': 5000,
+            'NAME': 'contrastive_lgb',
+            'NUM_SIMULATION': None,
             'LOG_EVALUATION': 250,
             'SAVE_MODEL': True,
             'SAVE_RESULTS_PATH': 'experiment'
@@ -23,6 +22,7 @@ if __name__ == '__main__':
         'boosting_type': 'gbdt',
         #this will be overwrite if augment
         'objective': 'binary',
+        'metric': 'auc',
         'n_jobs': -1,
         'num_leaves': 2**8,
         'learning_rate': 0.05,
@@ -31,18 +31,19 @@ if __name__ == '__main__':
         'bagging_fraction': 0.80,
         'lambda_l2': 1,
         'verbosity': -1,
-        'n_round': 2000,
+        'n_round': 1000,
     }
     feature_list = config_project['ORIGINAL_FEATURE']
     
     run_tabular_experiment(
         config_experiment=config_project, params_lgb=PARAMS_LGB, 
-        feature_list=feature_list, augment=config_project['AUGMENT'],
-        pretraining_step=config_project['NUM_AUGMENT'],
+        feature_list=feature_list,
+        num_simulation=config_project['NUM_SIMULATION'],
         target_col=config_project['TARGET_COL'], 
     )
     if config_project['SAVE_MODEL']:
         evaluate_experiment_score(
             config_experiment=config_project, params_lgb=PARAMS_LGB, 
-            feature_list=feature_list, augment=config_project['AUGMENT']
+            feature_list=feature_list,
+            target_col=config_project['TARGET_COL']
         )

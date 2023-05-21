@@ -42,10 +42,10 @@ def table_augmentation_logloss(real_target_mask, y_pred, data):
     y_pred = np.array(y_pred)
 
     grad, hess = np.zeros((len(y_true))), np.zeros((len(y_true)))
-    feat_grad, feat_hess = rmse_derivative(
+    feat_grad, feat_hess = logloss_derivative(
         y_true[~real_target_mask], y_pred[~real_target_mask]
     )
-    grad[~real_target_mask] = feat_grad
+    grad[~real_target_mask] = feat_grad/20
     hess[~real_target_mask] = feat_hess
 
     target_grad, target_hess = logloss_derivative(
@@ -57,7 +57,7 @@ def table_augmentation_logloss(real_target_mask, y_pred, data):
     return grad, hess
 
 def rmse_derivative(y_true, y_pred):
-    error = (y_pred-y_true) * 1/20 #magic coefficient?
+    error = (y_pred-y_true) * 1/20 #(Nreal/Nsim) magic coefficient?
 
     #1st derivative of loss function
     grad = 2. * error
@@ -70,9 +70,9 @@ def rmse_derivative(y_true, y_pred):
 def logloss_derivative(y_true, y_pred):
     preds = logistics(y_pred)
 
-    grad = preds - y_true
+    grad = (preds - y_true)
 
-    hess = preds * (1.0 - preds)
+    hess = (preds * (1.0 - preds))
 
     return grad, hess
 
