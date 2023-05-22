@@ -80,11 +80,13 @@ def fe_pipeline(
         dataset_1: pd.DataFrame, dataset_2: pd.DataFrame,
         feature_list: list
     ) -> pd.DataFrame:
+    dataset_1 = dataset_1[feature_list]
+    dataset_2 = dataset_2[feature_list]
 
     dataset_contrast = pd.DataFrame(
         (
-            dataset_1[feature_list] - 
-            dataset_2[feature_list]
+            dataset_1 - 
+            dataset_2
         ).abs(), columns=feature_list
     )
     dataset_contrast['number_zero'] = (dataset_contrast == 0).sum(axis=0)
