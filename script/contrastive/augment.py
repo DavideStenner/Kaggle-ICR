@@ -77,34 +77,33 @@ def fe_new_col_name()->list:
     ]
 
 def fe_pipeline(
-        dataset_1: np.array, dataset_2: np.array,
+        dataset_1: pd.DataFrame, dataset_2: pd.DataFrame,
         feature_list: list
     ) -> pd.DataFrame:
 
     dataset_contrast = pd.DataFrame(
-        np.abs(
-            dataset_1 - 
-            dataset_2
-        ), columns=feature_list
+        (
+            dataset_1[feature_list] - 
+            dataset_2[feature_list]
+        ).abs(), columns=feature_list
     )
-    dataset_contrast['number_zero'] = (dataset_contrast == 0).mean(axis=0)
+    dataset_contrast['number_zero'] = (dataset_contrast == 0).sum(axis=0)
     dataset_contrast['mean_diff'] = dataset_contrast.mean(axis=0)
     dataset_contrast['std_diff'] = dataset_contrast.std(axis=0)
     dataset_contrast['median_diff'] = dataset_contrast.median(axis=0)
 
-    dataset_contrast['diff_mean'] = np.abs(
-        np.mean(dataset_1, axis=1) -
-        np.mean(dataset_2, axis=1)
-    )
-    dataset_contrast['diff_std'] = np.abs(
-        np.std(dataset_1, axis=1) -
-        np.std(dataset_2, axis=1)
-    )
-    dataset_contrast['diff_median'] = np.abs(
-        np.median(dataset_1, axis=1) -
-        np.median(dataset_2, axis=1)
-    )
-
+    dataset_contrast['diff_mean'] = (
+        dataset_1.mean(axis=0) -
+        dataset_2.mean(axis=0)
+    ).abs()
+    dataset_contrast['diff_std'] = (
+        dataset_1.std(axis=0) -
+        dataset_2.std(axis=0)
+    ).abs()
+    dataset_contrast['diff_median'] = (
+        dataset_1.mean(axis=0) -
+        dataset_2.mean(axis=0)
+    ).abs()
     return dataset_contrast
 
 
@@ -127,7 +126,8 @@ def contrastive_pipeline(
     ].reset_index(drop=True)
 
     dataset_contrast = fe_pipeline(
-        dataset_1=c_1_data, dataset_2=c_2_data,
+        dataset_1=c_1_data, 
+        dataset_2=c_2_data,
         feature_list=feature_list
     )
 

@@ -296,19 +296,26 @@ def get_retrieval_dataset(
 
     test_x = test[feature_list].to_numpy('float32')
 
-    target_example = np.concatenate(
-        [
-            target_example
-            for _ in range(test_shape)
-        ], axis=0
+    target_example = pd.DataFrame(
+        np.concatenate(
+            [
+                target_example
+                for _ in range(test_shape)
+            ], axis=0
+        ), columns=feature_list
     )
-    test_x = np.repeat(test_x, target_example_shape, axis=0)
-    index_test = np.repeat(test.index.values, target_example_shape, axis=0)
+
+    test_x = pd.DataFrame(
+        np.repeat(test_x, target_example_shape, axis=0),
+        columns=feature_list
+    )
 
     retrieval_dataset = fe_pipeline(
         dataset_1=target_example,
         dataset_2=test_x, feature_list=feature_list,
     )
+
+    index_test = np.repeat(test.index.values, target_example_shape, axis=0)
     retrieval_dataset['rows'] = index_test
 
     return retrieval_dataset
