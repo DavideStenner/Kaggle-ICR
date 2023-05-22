@@ -27,9 +27,9 @@ def get_dataset(
     train_x = data[feature_list].to_numpy('float32')
     train_y = data['target_contrast'].to_numpy('float32')
 
-    lgb_dataset = lgb.Dataset(train_x, train_y)
+    dataset = lgb.Dataset(train_x, train_y)
 
-    return lgb_dataset
+    return dataset
 
 def get_augment_dataset(
         data: pd.DataFrame, fold_: int, inference: bool,
@@ -50,12 +50,12 @@ def get_augment_dataset(
     train_x = data[used_col].to_numpy('float32')
     train_y = data['target_contrast'].to_numpy('float32')
 
-    lgb_dataset = lgb.Dataset(train_x, train_y)
+    dataset = lgb.Dataset(train_x, train_y)
 
-    return lgb_dataset
+    return dataset
 
 def run_tabular_experiment(
-        config_experiment: dict, params_lgb: dict,
+        config_experiment: dict, params_model: dict,
         feature_list: list, num_simulation: int,
         target_col: str,
     ) -> None:
@@ -98,9 +98,9 @@ def run_tabular_experiment(
         ]
 
         model = lgb.train(
-            params=params_lgb,
+            params=params_model,
             train_set=train_matrix, 
-            num_boost_round=params_lgb['n_round'],
+            num_boost_round=params_model['n_round'],
             valid_sets=[test_matrix],
             valid_names=['valid'],
             callbacks=callbacks_list,
@@ -121,12 +121,12 @@ def run_tabular_experiment(
         
         _ = gc.collect()
         if config_experiment['SAVE_MODEL']:
-            save_lgb_model(
+            save_model(
                 model_list=model_list, progress_list=progress_list,
                 save_path=save_path
             )
 
-def save_lgb_model(
+def save_model(
         model_list: list, progress_list: list, save_path: str
     )->None:
         with open(
@@ -147,7 +147,7 @@ def save_lgb_model(
 
 def evaluate_experiment_score(
         config_experiment: dict, 
-        params_lgb: dict, feature_list: list,
+        params_model: dict, feature_list: list,
         target_col: dict
     ) -> None:
 
@@ -163,7 +163,7 @@ def evaluate_experiment_score(
             'progress_list_lgb.pkl'
         ), 'rb'
     ) as file:
-        progress_list_lgb = pickle.load(file)
+        progress_list = pickle.load(file)
 
     with open(
         os.path.join(
@@ -171,47 +171,47 @@ def evaluate_experiment_score(
             'model_list_lgb.pkl'
         ), 'rb'
     ) as file:
-        model_list_lgb = pickle.load(file)
+        model_list = pickle.load(file)
 
         
-    progress_dict_lgb = {
-        'time': range(params_lgb['n_round']),
+    progress_dict = {
+        'time': range(params_model['n_round']),
     }
 
-    progress_dict_lgb.update(
+    progress_dict.update(
             {
-                f"{params_lgb['metric']}_fold_{i}": progress_list_lgb[i]['valid'][params_lgb['metric']]
+                f"{params_model['metric']}_fold_{i}": progress_list[i]['valid'][params_model['metric']]
                 for i in range(config_experiment['N_FOLD'])
             }
         )
 
-    progress_df_lgb = pd.DataFrame(progress_dict_lgb)
+    progress_df = pd.DataFrame(progress_dict)
 
-    progress_df_lgb[f"average_{params_lgb['metric']}"] = progress_df_lgb.loc[
-        :, [params_lgb['metric'] in x for x in progress_df_lgb.columns]
+    progress_df[f"average_{params_model['metric']}"] = progress_df.loc[
+        :, [params_model['metric'] in x for x in progress_df.columns]
     ].mean(axis =1)
     
-    progress_df_lgb[f"std_{params_lgb['metric']}"] = progress_df_lgb.loc[
-        :, [params_lgb['metric'] in x for x in progress_df_lgb.columns]
+    progress_df[f"std_{params_model['metric']}"] = progress_df.loc[
+        :, [params_model['metric'] in x for x in progress_df.columns]
     ].std(axis =1)
 
-    best_epoch_lgb = (
-        int(progress_df_lgb[f"average_{params_lgb['metric']}"].argmax())
+    best_epoch = (
+        int(progress_df[f"average_{params_model['metric']}"].argmax())
         if config_experiment['INCREASE'] else
-        int(progress_df_lgb[f"average_{params_lgb['metric']}"].argmin())
+        int(progress_df[f"average_{params_model['metric']}"].argmin())
     )
-    best_score_lgb = progress_df_lgb.loc[
-        best_epoch_lgb,
-        f"average_{params_lgb['metric']}"].max()
-    lgb_std = progress_df_lgb.loc[
-        best_epoch_lgb, f"std_{params_lgb['metric']}"
+    best_score = progress_df.loc[
+        best_epoch,
+        f"average_{params_model['metric']}"].max()
+    std_score = progress_df.loc[
+        best_epoch, f"std_{params_model['metric']}"
     ]
 
-    print(f'Best epoch: {best_epoch_lgb}, CV-Auc: {best_score_lgb:.5f} ± {lgb_std:.5f}')
+    print(f'Best epoch: {best_epoch}, CV-Auc: {best_score:.5f} ± {std_score:.5f}')
 
-    best_result_lgb = {
-        'best_epoch': best_epoch_lgb+1,
-        'best_score': best_score_lgb
+    best_result = {
+        'best_epoch': best_epoch+1,
+        'best_score': best_score
     }
 
     with open(
@@ -220,19 +220,19 @@ def evaluate_experiment_score(
             'best_result_lgb.txt'
         ), 'w'
     ) as file:
-        json.dump(best_result_lgb, file)
+        json.dump(best_result, file)
 
     get_retrieval_score(
         config_experiment=config_experiment,
-        best_result_lgb=best_result_lgb, model_list_lgb=model_list_lgb,
+        best_result=best_result, model_list=model_list,
         feature_list=feature_list, target_col=target_col
     )
     
-    explain_model(config_experiment, best_result_lgb, model_list_lgb, feature_list)
+    explain_model(config_experiment, best_result, model_list, feature_list)
 
 def get_retrieval_score(
         config_experiment: dict,
-        best_result_lgb: dict, model_list_lgb: Tuple[lgb.Booster, ...],
+        best_result: dict, model_list: Tuple[lgb.Booster, ...],
         feature_list: list, target_col: str
     ) -> None:
     
@@ -267,15 +267,15 @@ def get_retrieval_score(
 
         used_feature = feature_list + fe_new_col_name()
 
-        retrieval_dataset_0['pred'] = model_list_lgb[fold_].predict(
+        retrieval_dataset_0['pred'] = model_list[fold_].predict(
             retrieval_dataset_0[used_feature], 
-            num_iteration = best_result_lgb['best_epoch']
+            num_iteration = best_result['best_epoch']
         )
         pred_0 = retrieval_dataset_0.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
 
-        retrieval_dataset_1['pred'] = model_list_lgb[fold_].predict(
+        retrieval_dataset_1['pred'] = model_list[fold_].predict(
             retrieval_dataset_1[used_feature],
-            num_iteration = best_result_lgb['best_epoch']
+            num_iteration = best_result['best_epoch']
         )
         pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
         
@@ -321,8 +321,8 @@ def get_retrieval_dataset(
     return retrieval_dataset
 
 def explain_model(
-        config_experiment: dict, best_result_lgb: dict, 
-        model_list_lgb: Tuple[lgb.Booster, ...], feature_list: list,
+        config_experiment: dict, best_result: dict, 
+        model_list: Tuple[lgb.Booster, ...], feature_list: list,
     ) -> None:
     
     save_path = os.path.join(
@@ -333,9 +333,9 @@ def explain_model(
     feature_importances = pd.DataFrame()
     feature_importances['feature'] = feature_list + fe_new_col_name()
 
-    for fold_, model in enumerate(model_list_lgb):
+    for fold_, model in enumerate(model_list):
         feature_importances[f'fold_{fold_}'] = model.feature_importance(
-            importance_type='gain', iteration=best_result_lgb['best_epoch']
+            importance_type='gain', iteration=best_result['best_epoch']
         )
 
     feature_importances['average'] = feature_importances[

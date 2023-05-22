@@ -11,5 +11,6 @@
         "EG","EH","EJ","EL","EP","EU","FC","FD ","FE","FI",
         "FL","FR","FS","GB","GE","GF","GH","GI","GL"
     ],
-    "SAVE_RESULTS_PATH": "experiment"
+    "SAVE_RESULTS_PATH": "experiment",
+    "RANDOM_STATE": 358481
 }
