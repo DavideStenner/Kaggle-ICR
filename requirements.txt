@@ -2,3 +2,4 @@ lightgbm
 shap
 seaborn
 matplotlib
+xgboost
