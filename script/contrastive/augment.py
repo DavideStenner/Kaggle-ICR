@@ -96,10 +96,12 @@ def fe_pipeline(
         dataset_1.mean(axis=0) -
         dataset_2.mean(axis=0)
     ).abs()
+
     dataset_contrast['diff_std'] = (
         dataset_1.std(axis=0) -
         dataset_2.std(axis=0)
     ).abs()
+
     dataset_contrast['diff_median'] = (
         dataset_1.mean(axis=0) -
         dataset_2.mean(axis=0)
