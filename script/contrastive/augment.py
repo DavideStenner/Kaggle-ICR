@@ -105,8 +105,8 @@ def fe_pipeline(
     ).abs()
 
     dataset_contrast['diff_median'] = (
-        dataset_1.mean(axis=0) -
-        dataset_2.mean(axis=0)
+        dataset_1.median(axis=0) -
+        dataset_2.median(axis=0)
     ).abs()
     return dataset_contrast
 
