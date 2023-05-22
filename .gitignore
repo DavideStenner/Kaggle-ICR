@@ -6,3 +6,4 @@ data/*
 __pycache__
 *.pbix
 experiment/*
+experiment_config.json

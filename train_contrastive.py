@@ -6,17 +6,18 @@ if __name__ == '__main__':
     with open('config.json') as config_file:
         config_project = json.load(config_file)
     
-    config_project.update(
-        {
-            'NAME': 'contrastive_lgb',
-            'NUM_SIMULATION': None,
-            'LOG_EVALUATION': 250,
-            'SAVE_MODEL': True,
-            'INCREASE': True,
-            'TRAIN_MODEL': True,
-            'SAVE_RESULTS_PATH': 'experiment'
-        }
-    )
+    with open('experiment_config.json') as config_experiment_file:
+        config_experiment = json.load(config_experiment_file)
+    
+    assert set(
+            [
+                'NAME', 'NUM_SIMULATION', 'LOG_EVALUATION', 
+                'SAVE_MODEL', 'INCREASE', 'TRAIN_MODEL', 'SAVE_RESULTS_PATH'
+            ]
+        ).issubset(set(config_experiment.keys()))
+
+    config_project.update(config_experiment)
+
     print('Starting Experiment', config_project['NAME'])
 
     PARAMS_LGB = {
