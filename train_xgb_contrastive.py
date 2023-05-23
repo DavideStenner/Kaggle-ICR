@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     config_project.update(config_experiment)
 
-    print('Starting Experiment', config_project['NAME'])
+    print('Starting xgb Experiment', config_project['NAME'])
 
     PARAMS_XGB = {
         'tree_method': 'hist',

@@ -1,9 +1,5 @@
 
-import os
 import json
-import random
-
-import numpy as np
 
 from script.utils import set_seed_globally
 from script.contrastive.lgb_model import run_lgb_experiment, evaluate_lgb_score
@@ -26,7 +22,7 @@ if __name__ == '__main__':
 
     config_project.update(config_experiment)
 
-    print('Starting Experiment', config_project['NAME'])
+    print('Starting lgb Experiment', config_project['NAME'])
 
     PARAMS_LGB = {
         'tree_learner': 'voting',

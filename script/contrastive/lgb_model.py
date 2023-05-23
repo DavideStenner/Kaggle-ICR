@@ -245,6 +245,7 @@ def get_retrieval_score(
 
     auc_ =  0
     comp_score = 0
+    prediction_array = np.zeros((data.shape[0]))
 
     for fold_ in range(config_experiment['N_FOLD']):            
         test = data[data['fold']==fold_].reset_index(drop=True)
@@ -281,10 +282,20 @@ def get_retrieval_score(
         
         pred_1 = pred_1/(pred_0+pred_1)
 
+        prediction_array[data['fold']==fold_] = pred_1
         auc_ += roc_auc_score(test_y, pred_1)/config_experiment['N_FOLD']
         comp_score += competition_log_loss(test_y, pred_1)/config_experiment['N_FOLD']
 
     print(f'Retrieval auc: {auc_:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
+
+    np.save(
+        os.path.join(
+            config_experiment['SAVE_RESULTS_PATH'], 
+            config_experiment['NAME'],
+            'lgb_pred_oof.npy'
+        ),
+        prediction_array
+    )
 
 def get_retrieval_dataset(
         test: pd.DataFrame, target_example: pd.DataFrame, 
