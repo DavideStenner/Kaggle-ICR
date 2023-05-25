@@ -45,8 +45,8 @@ def get_stratified_example(
             (data.index != row)
         )[0]
 
-        sampled_equal_idxs = np.random.choice(equal_idxs, size=target_sample[curr_target], replace=False).tolist()
-        sampled_negative_idxs = np.random.choice(negative_idxs, size=target_sample[1-curr_target], replace=False).tolist()
+        sampled_equal_idxs = np.random.choice(equal_idxs, size=target_sample_equal[curr_target], replace=False).tolist()
+        sampled_negative_idxs = np.random.choice(negative_idxs, size=target_sample_negative[curr_target], replace=False).tolist()
         sampled_idxs = sampled_equal_idxs + sampled_negative_idxs
         
         c_1_simulated += [row for _ in range(len(sampled_idxs))]
@@ -56,7 +56,7 @@ def get_stratified_example(
     initial_size = len(c_1_simulated)
 
     c_simulated = [[c_1_simulated[i], c_2_simulated[i]] for i in range(len(c_1_simulated))]
-    c_simulated = [list(dist_x) for dist_x in set(tuple(x) for x in c_simulated)]
+    c_simulated = [list(dist_x) for dist_x in set(tuple(set(x)) for x in c_simulated)]
     if len(c_simulated) - initial_size > 0:
         print(f'reduces augmentation by: {len(c_simulated) - initial_size}')
 
