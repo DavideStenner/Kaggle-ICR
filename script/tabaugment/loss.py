@@ -78,3 +78,10 @@ def logloss_derivative(y_true, y_pred):
 
 def logistics(x):
     return 1.0 / (1.0 + np.exp(-x))
+
+
+def calc_log_loss_weight(y_true):
+    nc = np.bincount(y_true)
+    w0, w1 = 1/(nc[0]/y_true.shape[0]), 1/(nc[1]/y_true.shape[0])
+    
+    return w0, w1

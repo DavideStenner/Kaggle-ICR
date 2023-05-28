@@ -1,8 +1,14 @@
+import os
+import json
+
 import numpy as np
 import pandas as pd
 
 from typing import Tuple
 from itertools import combinations
+
+with open('config.json') as config_file:
+    CONFIG_PROJECT = json.load(config_file)
 
 def get_all_combination(data: pd.DataFrame, inference: bool, num_simulation: int = None) -> Tuple[list, list]:
     index_number = list(range(data.shape[0]))
@@ -115,7 +121,8 @@ def get_stratified_example(
     return c_1_simulated, c_2_simulated
 
 def fe_new_col_name()->list:
-    return [
+    original_col = CONFIG_PROJECT["ORIGINAL_FEATURE"]
+    feature_list = [
         'mean_diff',
         'std_diff',
         'median_diff',
@@ -123,11 +130,14 @@ def fe_new_col_name()->list:
         'diff_mean',
         'diff_std',
         'diff_median',
+        'mse_total_0', 'mse_total_1',
+        'mad_total', 'mean_total', 'min_total', 'max_total'
     ]
+    return feature_list
 
 def fe_pipeline(
         dataset_1: pd.DataFrame, dataset_2: pd.DataFrame,
-        feature_list: list
+        feature_list: list, target_col: str
     ) -> pd.DataFrame:
     dataset_1 = dataset_1[feature_list]
     dataset_2 = dataset_2[feature_list]
@@ -157,8 +167,68 @@ def fe_pipeline(
         dataset_1.median(axis=1) -
         dataset_2.median(axis=1)
     ).abs()
+    
+    dataset_contrast = difference_fun_list(dataset_contrast, dataset_1, dataset_2, feature_list, target_col)
     return dataset_contrast
 
+def difference_fun_list(
+        dataset_contrast: pd.DataFrame,
+        dataset_1: pd.DataFrame, dataset_2: pd.DataFrame,
+        feature_list: list, target_col: str
+    ) -> pd.DataFrame:
+
+    dataset_all = pd.read_pickle(
+        os.path.join(
+            CONFIG_PROJECT["PATH_DATA"],
+            "processed_data.pkl"
+        )
+    )[feature_list + [target_col]]
+    
+    for target in [0, 1]:
+        
+        target_array = dataset_all.loc[dataset_all[target_col]==target, feature_list]
+        mean_, std_ = target_array.mean(), target_array.std()
+
+        rescaled_dataset_1 = (
+            (dataset_1[feature_list] - mean_)/std_
+        ).fillna(mean_)
+
+        rescaled_dataset_2 = (
+            (dataset_2[feature_list] - mean_)/std_
+        ).fillna(mean_)
+        
+        mse_ = np.mean(
+            np.power(rescaled_dataset_1 - rescaled_dataset_2, 2),
+            axis=1
+        )
+
+        dataset_contrast[f'mse_total_{target}'] = mse_
+
+    dataset_contrast['mad_total'] = np.median(
+        (
+            dataset_1[feature_list] - dataset_2[feature_list]
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['mean_total'] = np.mean(
+        (
+            dataset_1[feature_list] - dataset_2[feature_list]
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['min_total'] = np.min(
+        (
+            dataset_1[feature_list] - dataset_2[feature_list]
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['max_total'] = np.max(
+        (
+            dataset_1[feature_list] - dataset_2[feature_list]
+        ).abs(), axis=1
+    )
+
+    return dataset_contrast
 
 def contrastive_pipeline(
         data: pd.DataFrame, feature_list: list, inference: bool,
@@ -179,7 +249,7 @@ def contrastive_pipeline(
     dataset_contrast = fe_pipeline(
         dataset_1=c_1_data, 
         dataset_2=c_2_data,
-        feature_list=feature_list
+        feature_list=feature_list, target_col=original_tgt_label
     )
 
     dataset_contrast['target_contrast'] = (
