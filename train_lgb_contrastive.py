@@ -28,16 +28,16 @@ if __name__ == '__main__':
         'tree_learner': 'voting',
         'boosting_type': 'gbdt',
         'objective': 'binary',
-        'metric': 'auc',
+        'metric': 'binary_logloss',
         'n_jobs': -1,
         'num_leaves': 2**8,
-        'learning_rate': 0.05,
+        'learning_rate': 0.01,
         'feature_fraction': 0.75,
         'bagging_freq': 1,
         'bagging_fraction': 0.80,
         'lambda_l2': 1,
         'verbosity': -1,
-        'n_round': 1500,
+        'n_round': 500,
         'seed': config_project['RANDOM_STATE']
     }
     feature_list = config_project['ORIGINAL_FEATURE']

@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from typing import Tuple
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, log_loss
 
 from script.contrastive.augment import contrastive_pipeline, fe_pipeline, fe_new_col_name
 from script.contrastive.loss import competition_log_loss
@@ -202,12 +202,13 @@ def evaluate_lgb_score(
     )
     best_score = progress_df.loc[
         best_epoch,
-        f"average_{params_model['metric']}"].max()
+        f"average_{params_model['metric']}"
+    ]
     std_score = progress_df.loc[
         best_epoch, f"std_{params_model['metric']}"
     ]
 
-    print(f'Best epoch: {best_epoch}, CV-Auc: {best_score:.5f} ± {std_score:.5f}')
+    print(f'Best epoch: {best_epoch}, CV-log-loss: {best_score:.5f} ± {std_score:.5f}')
 
     best_result = {
         'best_epoch': best_epoch+1,
@@ -243,9 +244,11 @@ def get_retrieval_score(
         )
     )[feature_list + ['fold', target_col]]
 
-    auc_ =  0
+    log_loss_score =  0
     comp_score = 0
     prediction_array = np.zeros((data.shape[0]))
+
+    used_feature = feature_list + fe_new_col_name()
 
     for fold_ in range(config_experiment['N_FOLD']):            
         test = data[data['fold']==fold_].reset_index(drop=True)
@@ -263,10 +266,8 @@ def get_retrieval_score(
         
         test_y = test[target_col].to_numpy('float32')
 
-        retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list)
-        retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list)
-
-        used_feature = feature_list + fe_new_col_name()
+        retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list, target_col)
+        retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list, target_col)
 
         retrieval_dataset_0['pred'] = model_list[fold_].predict(
             retrieval_dataset_0[used_feature], 
@@ -280,13 +281,14 @@ def get_retrieval_score(
         )
         pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
         
-        pred_1 = pred_1/(pred_0+pred_1)
+        # pred_1 = pred_1/(pred_0+pred_1)
+        pred_1 = (1-pred_0)
 
         prediction_array[data['fold']==fold_] = pred_1
-        auc_ += roc_auc_score(test_y, pred_1)/config_experiment['N_FOLD']
+        log_loss_score += log_loss(test_y, pred_1)/config_experiment['N_FOLD']
         comp_score += competition_log_loss(test_y, pred_1)/config_experiment['N_FOLD']
 
-    print(f'Retrieval auc: {auc_:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
+    print(f'Retrieval log_loss: {log_loss_score:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
 
     np.save(
         os.path.join(
@@ -299,7 +301,7 @@ def get_retrieval_score(
 
 def get_retrieval_dataset(
         test: pd.DataFrame, target_example: pd.DataFrame, 
-        feature_list:list
+        feature_list: list, target_col: str
     ) -> Tuple[pd.DataFrame, list]:
 
     test_shape = test.shape[0]
@@ -323,7 +325,7 @@ def get_retrieval_dataset(
 
     retrieval_dataset = fe_pipeline(
         dataset_1=target_example,
-        dataset_2=test_x, feature_list=feature_list,
+        dataset_2=test_x, feature_list=feature_list, target_col=target_col
     )
 
     index_test = np.repeat(test.index.values, target_example_shape, axis=0)
