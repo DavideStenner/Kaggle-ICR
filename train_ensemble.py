@@ -16,11 +16,15 @@ if __name__ == '__main__':
     with open('experiment_config_contrastive_xgb.json') as config_experiment_file:
         config_contrastive_experiment_xgb = json.load(config_experiment_file)
 
+    with open('experiment_config_xgb.json') as config_experiment_file:
+        config_experiment_xgb = json.load(config_experiment_file)
+
     set_seed_globally(config_project['RANDOM_STATE'])
 
     config_project['NAME_CONTRASTIVE_LGB'] = config_contrastive_experiment_lgb['NAME']
     config_project['NAME_LGB'] = config_experiment_lgb['NAME']
     config_project['NAME_CONTRASTIVE_XGB'] = config_contrastive_experiment_xgb['NAME']
+    config_project['NAME_XGB'] = config_experiment_xgb['NAME']
 
     feature_list = config_project['ORIGINAL_FEATURE']
 

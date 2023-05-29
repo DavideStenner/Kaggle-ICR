@@ -81,6 +81,29 @@ def import_model(config: dict) -> Dict[
     ) as file:
         model_list_lgb = pickle.load(file)
 
+    #XGB
+    save_path_xgb = os.path.join(
+        config['SAVE_RESULTS_PATH'], 
+        config['NAME_XGB']
+    )
+
+    with open(
+        os.path.join(
+            save_path_xgb,
+            'best_result_xgb.txt'
+        ), 'r'
+    ) as file:
+        best_result_xgb = json.load(file)
+
+    with open(
+        os.path.join(
+            save_path_xgb,
+            'model_list_xgb.pkl'
+        ), 'rb'
+    ) as file:
+        model_list_xgb = pickle.load(file)
+
+
     results = {
         'lgb_contrastive': {
             'best_result': best_result_lgb_contrastive,
@@ -93,6 +116,10 @@ def import_model(config: dict) -> Dict[
         'lgb': {
             'best_result': best_result_lgb,
             'model_list': model_list_lgb
+        },
+        'xgb': {
+            'best_result': best_result_xgb,
+            'model_list': model_list_xgb
         }
     }
     return results
@@ -191,9 +218,13 @@ def get_retrieval_score(
             fold_=fold_, model_list=model_dict['xgb_contrastive']['model_list'],
             best_result=model_dict['xgb_contrastive']['best_result']
         )
+        pred_xgb = xgb_predict(
+            used_feature=feature_list, test=test, fold_=fold_,
+            model_list=model_dict['xgb']['model_list'],
+            best_result=model_dict['xgb']['best_result']
+        )
 
-
-        pred_1 = (pred_lgb_contrastive + pred_lgb + pred_xgb_contrastive)/3
+        pred_1 = (pred_lgb_contrastive + pred_lgb + pred_xgb_contrastive + pred_xgb)/4
 
         log_loss_score += log_loss(test_y, pred_1)/config_experiment['N_FOLD']
         comp_score += competition_log_loss(test_y, pred_1)/config_experiment['N_FOLD']

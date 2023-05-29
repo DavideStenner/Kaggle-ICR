@@ -23,6 +23,7 @@ if __name__ == '__main__':
     with open('config.json') as config_file:
         config_project = json.load(config_file)
     experiment_list = [
+        'experiment_config_xgb.json',
         'experiment_config_lgb.json',
         'experiment_config_contrastive_lgb.json',
         'experiment_config_contrastive_lgb.json',
