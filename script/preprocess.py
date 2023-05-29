@@ -24,11 +24,17 @@ def preprocess_data(config: dict) -> None:
     )
 
     fold_info = pd.merge(
-        train[['Id', 'Class']], 
+        train[['Id', 'Class', 'BN', 'EJ']], 
         greeks, on='Id'
     )
-    split = StratifiedKFold(n_splits=config['N_FOLD'])
-    iterator_split = enumerate(split.split(fold_info, fold_info['Alpha']))
+    age_ = (np.round(fold_info['BN']/0.3531, 1).astype(int))
+    age_binned = pd.cut(age_, config['N_FOLD'], labels=range(config['N_FOLD'])).astype(str)
+    
+    #condition + age + sex
+    strat_col = fold_info['Alpha'].astype(str) + '_' + age_binned + '_' + fold_info['EJ']
+
+    split = StratifiedKFold(n_splits=config['N_FOLD'], shuffle=True, random_state=config['RANDOM_STATE'])
+    iterator_split = enumerate(split.split(fold_info, strat_col))
     fold_info['fold'] = int(-1)
 
     for fold_, (_, test_index) in iterator_split:
