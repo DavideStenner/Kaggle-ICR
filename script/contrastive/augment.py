@@ -316,3 +316,37 @@ def contrastive_pipeline(
     ).astype(int)
     print(f"Augmented {'Valid' if inference else 'Train'} dataset: {dataset_contrast.shape[0]} rows")
     return dataset_contrast
+
+def get_retrieval_dataset(
+        test: pd.DataFrame, target_example: pd.DataFrame, 
+        feature_list: list, target_col: str
+    ) -> Tuple[pd.DataFrame, list]:
+
+    test_shape = test.shape[0]
+    target_example_shape = target_example.shape[0]
+
+    test_x = test[feature_list].to_numpy('float32')
+
+    target_example = pd.DataFrame(
+        np.concatenate(
+            [
+                target_example
+                for _ in range(test_shape)
+            ], axis=0
+        ), columns=feature_list
+    )
+
+    test_x = pd.DataFrame(
+        np.repeat(test_x, target_example_shape, axis=0),
+        columns=feature_list
+    )
+
+    retrieval_dataset = fe_pipeline(
+        dataset_1=target_example,
+        dataset_2=test_x, feature_list=feature_list, target_col=target_col
+    )
+
+    index_test = np.repeat(test.index.values, target_example_shape, axis=0)
+    retrieval_dataset['rows'] = index_test
+
+    return retrieval_dataset
