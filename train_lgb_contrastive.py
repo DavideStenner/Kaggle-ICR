@@ -37,7 +37,7 @@ if __name__ == '__main__':
         'bagging_fraction': 0.80,
         'lambda_l2': 1,
         'verbosity': -1,
-        'n_round': 500,
+        'n_round': 1000,
         'seed': config_project['RANDOM_STATE']
     }
     feature_list = config_project['ORIGINAL_FEATURE']

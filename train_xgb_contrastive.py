@@ -26,14 +26,14 @@ if __name__ == '__main__':
     PARAMS_XGB = {
         'tree_method': 'hist',
         'objective': 'binary:logistic',
-        'eval_metric': 'auc',
-        'max_depth': 8,
+        'eval_metric': 'logloss',
+        'max_depth': 6,
         'reg_lambda': 1,
-        'learning_rate':0.05,
+        'learning_rate':0.01,
         'subsample':0.75,
         'colsample_bytree':0.8,
         'nthread' : -1,
-        'n_round': 1500,
+        'n_round': 1000,
         'seed': config_project['RANDOM_STATE']
     }
 
