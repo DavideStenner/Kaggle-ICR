@@ -57,16 +57,17 @@ def get_all_combination_stratified(
     # ratio_1_0 = data[original_tgt_label].mean()
     # number_equal = len(c_1_1_equal_simulated)
     # number_unequal = int(number_equal/ratio_1_0)
-    number_unequal = min(sum(mask_unequal), sum(mask_0_0))
+    max_sample = min(sum(mask_unequal), sum(mask_0_0))
+    number_equal, number_unequal = max_sample, max_sample
 
     c_1_unequal_simulated = list(observation_1.loc[mask_unequal, 'index'])[:number_unequal]
     c_2_unequal_simulated = list(observation_2.loc[mask_unequal, 'index'])[:number_unequal]
 
-    c_0_1_equal_simulated = list(observation_1.loc[mask_0_0, 'index'])[:number_unequal]
-    c_0_2_equal_simulated = list(observation_2.loc[mask_0_0, 'index'])[:number_unequal]
+    c_0_1_equal_simulated = list(observation_1.loc[mask_0_0, 'index'])[:number_equal]
+    c_0_2_equal_simulated = list(observation_2.loc[mask_0_0, 'index'])[:number_equal]
 
 
-    print(f'{number_unequal} 0-1; {number_unequal} 0-0')
+    print(f'{number_unequal} 0-1; {number_equal} 0-0')
     c_1_simulated = c_1_unequal_simulated + c_0_1_equal_simulated #+ c_1_1_equal_simulated
     c_2_simulated = c_2_unequal_simulated + c_0_2_equal_simulated #+ c_1_2_equal_simulated
 
@@ -253,7 +254,7 @@ def contrastive_pipeline(
     )
 
     dataset_contrast['target_contrast'] = (
-        (c_2_data[original_tgt_label] + c_1_data[original_tgt_label]) == 0
+        (c_2_data[original_tgt_label] + c_1_data[original_tgt_label]) == 1
     ).astype(int)
     print(f"Augmented {'Valid' if inference else 'Train'} dataset: {dataset_contrast.shape[0]} rows")
     return dataset_contrast

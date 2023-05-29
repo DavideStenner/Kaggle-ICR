@@ -259,34 +259,33 @@ def get_retrieval_score(
             (data[target_col] == 0), feature_list
         ].values
 
-        target_example_1 = data.loc[
-            (data['fold']!=fold_) &
-            (data[target_col] == 1), feature_list
-        ].values
+        # target_example_1 = data.loc[
+        #     (data['fold']!=fold_) &
+        #     (data[target_col] == 1), feature_list
+        # ].values
         
         test_y = test[target_col].to_numpy('float32')
 
         retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list, target_col)
-        retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list, target_col)
+        # retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list, target_col)
 
         retrieval_dataset_0['pred'] = model_list[fold_].predict(
             retrieval_dataset_0[used_feature], 
             num_iteration = best_result['best_epoch']
         )
-        pred_0 = retrieval_dataset_0.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
+        pred_0 = retrieval_dataset_0.groupby('rows')['pred'].median().reset_index().sort_values('rows')['pred'].values
 
-        retrieval_dataset_1['pred'] = model_list[fold_].predict(
-            retrieval_dataset_1[used_feature],
-            num_iteration = best_result['best_epoch']
-        )
-        pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
+        # retrieval_dataset_1['pred'] = model_list[fold_].predict(
+        #     retrieval_dataset_1[used_feature],
+        #     num_iteration = best_result['best_epoch']
+        # )
+        # pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
         
-        # pred_1 = pred_1/(pred_0+pred_1)
-        pred_1 = (1-pred_0)
+        # pred_1 = pred_0
 
-        prediction_array[data['fold']==fold_] = pred_1
-        log_loss_score += log_loss(test_y, pred_1)/config_experiment['N_FOLD']
-        comp_score += competition_log_loss(test_y, pred_1)/config_experiment['N_FOLD']
+        prediction_array[data['fold']==fold_] = pred_0
+        log_loss_score += log_loss(test_y, pred_0)/config_experiment['N_FOLD']
+        comp_score += competition_log_loss(test_y, pred_0)/config_experiment['N_FOLD']
 
     print(f'Retrieval log_loss: {log_loss_score:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
 
