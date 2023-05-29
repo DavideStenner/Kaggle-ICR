@@ -253,30 +253,16 @@ def get_retrieval_score(
             (data['fold']!=fold_) &
             (data[target_col] == 0), feature_list
         ].values
-
-        # target_example_1 = data.loc[
-        #     (data['fold']!=fold_) &
-        #     (data[target_col] == 1), feature_list
-        # ].values
         
         test_y = test[target_col].to_numpy('float32')
 
         retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list, target_col)
-        # retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list, target_col)
 
         retrieval_dataset_0['pred'] = model_list[fold_].predict(
             xgb.DMatrix(retrieval_dataset_0[used_feature]), 
             iteration_range = (0, best_result['best_epoch'])
         )
         pred_0 = retrieval_dataset_0.groupby('rows')['pred'].median().reset_index().sort_values('rows')['pred'].values
-
-        # retrieval_dataset_1['pred'] = model_list[fold_].predict(
-        #     xgb.DMatrix(retrieval_dataset_1[used_feature]),
-        #     iteration_range = (0, best_result['best_epoch'])
-        # )
-        # pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
-        
-        # pred_1 = pred_0
 
         prediction_array[data['fold']==fold_] = pred_0
         log_loss_score += log_loss(test_y, pred_0)/config_experiment['N_FOLD']
@@ -292,33 +278,3 @@ def get_retrieval_score(
         ),
         prediction_array
     )
-
-# def explain_model(
-#         config_experiment: dict, best_result: dict, 
-#         model_list: Tuple[xgb.Booster, ...], feature_list: list,
-#     ) -> None:
-    
-#     save_path = os.path.join(
-#         config_experiment['SAVE_RESULTS_PATH'], 
-#         config_experiment['NAME']
-#     )
-    
-#     feature_importances = pd.DataFrame()
-#     feature_importances['feature'] = feature_list + fe_new_col_name()
-
-#     for fold_, model in enumerate(model_list):
-#         feature_importances[f'fold_{fold_}'] = model.feature_importance(
-#             importance_type='gain', iteration=best_result['best_epoch']
-#         )
-
-#     feature_importances['average'] = feature_importances[
-#         [f'fold_{fold_}' for fold_ in range(config_experiment['N_FOLD'])]
-#     ].mean(axis=1)
-
-#     fig = plt.figure(figsize=(12,8))
-#     sns.barplot(data=feature_importances.sort_values(by='average', ascending=False).head(50), x='average', y='feature');
-#     plt.title(f"50 TOP feature importance over {config_experiment['N_FOLD']} average")
-
-#     fig.savefig(
-#         os.path.join(save_path, 'importance_plot.png')
-#     )
