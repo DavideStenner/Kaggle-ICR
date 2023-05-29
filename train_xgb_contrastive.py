@@ -9,7 +9,7 @@ if __name__ == '__main__':
     
     set_seed_globally(config_project['RANDOM_STATE'])
 
-    with open('experiment_config_xgb.json') as config_experiment_file:
+    with open('experiment_config_contrastive_xgb.json') as config_experiment_file:
         config_experiment = json.load(config_experiment_file)
     
     assert set(
