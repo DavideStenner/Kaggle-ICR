@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 
 from typing import Tuple
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, log_loss
 
-from script.contrastive.augment import contrastive_pipeline, fe_pipeline, fe_new_col_name
+from script.contrastive.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
 from script.contrastive.loss import competition_log_loss
 
 def get_dataset(
@@ -292,40 +292,6 @@ def get_retrieval_score(
         ),
         prediction_array
     )
-
-def get_retrieval_dataset(
-        test: pd.DataFrame, target_example: pd.DataFrame, 
-        feature_list:list
-    ) -> Tuple[pd.DataFrame, list]:
-
-    test_shape = test.shape[0]
-    target_example_shape = target_example.shape[0]
-
-    test_x = test[feature_list].to_numpy('float32')
-
-    target_example = pd.DataFrame(
-        np.concatenate(
-            [
-                target_example
-                for _ in range(test_shape)
-            ], axis=0
-        ), columns=feature_list
-    )
-
-    test_x = pd.DataFrame(
-        np.repeat(test_x, target_example_shape, axis=0),
-        columns=feature_list
-    )
-
-    retrieval_dataset = fe_pipeline(
-        dataset_1=target_example,
-        dataset_2=test_x, feature_list=feature_list,
-    )
-
-    index_test = np.repeat(test.index.values, target_example_shape, axis=0)
-    retrieval_dataset['rows'] = index_test
-
-    return retrieval_dataset
 
 # def explain_model(
 #         config_experiment: dict, best_result: dict, 
