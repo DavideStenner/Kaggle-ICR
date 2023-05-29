@@ -116,12 +116,12 @@ def run_xgb_experiment(
         
         _ = gc.collect()
         if config_experiment['SAVE_MODEL']:
-            save_lgb_model(
+            save_model(
                 model_list=model_list, progress_list=progress_list,
                 save_path=save_path
             )
 
-def save_lgb_model(
+def save_model(
         model_list: list, progress_list: list, save_path: str
     )->None:
         with open(
@@ -203,7 +203,7 @@ def evaluate_xgb_score(
         best_epoch, f"std_{params_model['eval_metric']}"
     ]
 
-    print(f'Best epoch: {best_epoch}, CV-Auc: {best_score:.5f} ± {std_score:.5f}')
+    print(f'Best epoch: {best_epoch}, CV-log-loss: {best_score:.5f} ± {std_score:.5f}')
 
     best_result = {
         'best_epoch': best_epoch+1,
@@ -239,9 +239,11 @@ def get_retrieval_score(
         )
     )[feature_list + ['fold', target_col]]
 
-    auc_ =  0
+    log_loss_score =  0
     comp_score = 0
     prediction_array = np.zeros((data.shape[0]))
+
+    used_feature = feature_list + fe_new_col_name()
 
     for fold_ in range(config_experiment['N_FOLD']):            
         test = data[data['fold']==fold_].reset_index(drop=True)
@@ -252,38 +254,36 @@ def get_retrieval_score(
             (data[target_col] == 0), feature_list
         ].values
 
-        target_example_1 = data.loc[
-            (data['fold']!=fold_) &
-            (data[target_col] == 1), feature_list
-        ].values
+        # target_example_1 = data.loc[
+        #     (data['fold']!=fold_) &
+        #     (data[target_col] == 1), feature_list
+        # ].values
         
         test_y = test[target_col].to_numpy('float32')
 
-        retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list)
-        retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list)
-
-        used_feature = feature_list + fe_new_col_name()
+        retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list, target_col)
+        # retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list, target_col)
 
         retrieval_dataset_0['pred'] = model_list[fold_].predict(
             xgb.DMatrix(retrieval_dataset_0[used_feature]), 
             iteration_range = (0, best_result['best_epoch'])
         )
-        pred_0 = retrieval_dataset_0.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
+        pred_0 = retrieval_dataset_0.groupby('rows')['pred'].median().reset_index().sort_values('rows')['pred'].values
 
-        retrieval_dataset_1['pred'] = model_list[fold_].predict(
-            xgb.DMatrix(retrieval_dataset_1[used_feature]),
-            iteration_range = (0, best_result['best_epoch'])
-        )
-        pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
+        # retrieval_dataset_1['pred'] = model_list[fold_].predict(
+        #     xgb.DMatrix(retrieval_dataset_1[used_feature]),
+        #     iteration_range = (0, best_result['best_epoch'])
+        # )
+        # pred_1 = retrieval_dataset_1.groupby('rows')['pred'].mean().reset_index().sort_values('rows')['pred'].values
         
-        pred_1 = pred_1/(pred_0+pred_1)
+        # pred_1 = pred_0
 
-        prediction_array[data['fold']==fold_] = pred_1
-        auc_ += roc_auc_score(test_y, pred_1)/config_experiment['N_FOLD']
-        comp_score += competition_log_loss(test_y, pred_1)/config_experiment['N_FOLD']
+        prediction_array[data['fold']==fold_] = pred_0
+        log_loss_score += log_loss(test_y, pred_0)/config_experiment['N_FOLD']
+        comp_score += competition_log_loss(test_y, pred_0)/config_experiment['N_FOLD']
 
-    print(f'Retrieval auc: {auc_:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
-    
+    print(f'Retrieval log_loss: {log_loss_score:.5f}; Retrieval balanced log-loss: {comp_score:.5f}')
+
     np.save(
         os.path.join(
             config_experiment['SAVE_RESULTS_PATH'], 
