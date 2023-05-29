@@ -74,7 +74,7 @@ def import_model(config: dict) -> Dict[
     }
     return results
 
-def xgb_predict(
+def xgb_contrastive_predict(
         used_feature: list,
         retrieval_dataset_0: pd.DataFrame,
         fold_: int, model_list: List[xgb.Booster], best_result: dict
@@ -86,7 +86,7 @@ def xgb_predict(
         pred_0 = retrieval_dataset_0.groupby('rows')['pred'].median().reset_index().sort_values('rows')['pred'].values        
         return pred_0
 
-def lgb_predict(
+def lgb_contrastive_predict(
         used_feature: list,
         retrieval_dataset_0: pd.DataFrame,
         fold_: int, model_list: List[lgb.Booster], best_result: dict
@@ -137,13 +137,13 @@ def get_retrieval_score(
         retrieval_dataset_0 = get_retrieval_dataset(test, target_example_0, feature_list, target_col)
         # retrieval_dataset_1 = get_retrieval_dataset(test, target_example_1, feature_list)
 
-        pred_lgb = lgb_predict(
+        pred_lgb = lgb_contrastive_predict(
             used_feature=used_feature, retrieval_dataset_0=retrieval_dataset_0, 
             fold_=fold_, model_list=model_dict['lgb']['model_list'],
             best_result=model_dict['lgb']['best_result']
         )
 
-        pred_xgb = xgb_predict(
+        pred_xgb = xgb_contrastive_predict(
             used_feature=used_feature, retrieval_dataset_0=retrieval_dataset_0, 
             fold_=fold_, model_list=model_dict['xgb']['model_list'],
             best_result=model_dict['xgb']['best_result']

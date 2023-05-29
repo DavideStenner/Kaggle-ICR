@@ -1,7 +1,7 @@
 import json
 
 from script.utils import set_seed_globally
-from script.contrastive.xgb_model import run_xgb_experiment, evaluate_xgb_score
+from script.contrastive.xgb_model import run_contrastive_xgb_experiment, evaluate_contrastive_xgb_score
 
 if __name__ == '__main__':
     with open('config.json') as config_file:
@@ -40,14 +40,14 @@ if __name__ == '__main__':
     feature_list = config_project['ORIGINAL_FEATURE']
     
     if config_project['TRAIN_MODEL']:
-        run_xgb_experiment(
+        run_contrastive_xgb_experiment(
             config_experiment=config_project, params_model=PARAMS_XGB, 
             feature_list=feature_list,
             num_simulation=config_project['NUM_SIMULATION'],
             target_col=config_project['TARGET_COL'], 
         )
     if config_project['SAVE_MODEL']:
-        evaluate_xgb_score(
+        evaluate_contrastive_xgb_score(
             config_experiment=config_project, params_model=PARAMS_XGB, 
             feature_list=feature_list,
             target_col=config_project['TARGET_COL']

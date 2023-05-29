@@ -54,7 +54,7 @@ def get_augment_dataset(
 
     return dataset
 
-def run_lgb_experiment(
+def run_lgb_contrastive_experiment(
         config_experiment: dict, params_model: dict,
         feature_list: list, num_simulation: int,
         target_col: str,
@@ -145,7 +145,7 @@ def save_model(
         ) as file:
             pickle.dump(progress_list, file)
 
-def evaluate_lgb_score(
+def evaluate_contrastive_lgb_score(
         config_experiment: dict, 
         params_model: dict, feature_list: list,
         target_col: dict
