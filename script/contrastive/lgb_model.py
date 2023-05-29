@@ -14,22 +14,7 @@ from typing import Tuple
 from sklearn.metrics import roc_auc_score, log_loss
 
 from script.contrastive.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
-from script.contrastive.loss import competition_log_loss
-
-def get_dataset(
-        data: pd.DataFrame, fold_: int, inference: bool,
-        target_col: str, feature_list: list
-    ) -> lgb.Dataset:
-        
-    mask_fold = data['fold']==fold_ if inference else data['fold']!=fold_
-    
-    data = data[mask_fold].reset_index(drop=True)
-    train_x = data[feature_list].to_numpy('float32')
-    train_y = data['target_contrast'].to_numpy('float32')
-
-    dataset = lgb.Dataset(train_x, train_y)
-
-    return dataset
+from script.loss import competition_log_loss
 
 def get_augment_dataset(
         data: pd.DataFrame, fold_: int, inference: bool,

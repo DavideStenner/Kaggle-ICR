@@ -14,7 +14,7 @@ from typing import Tuple
 from sklearn.metrics import roc_auc_score, log_loss
 
 from script.contrastive.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
-from script.contrastive.loss import competition_log_loss
+from script.loss import competition_log_loss
 
 def get_dataset(
         data: pd.DataFrame, fold_: int, inference: bool,

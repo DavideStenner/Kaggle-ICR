@@ -1,10 +1,5 @@
 import numpy as np
 
-def lgb_augment_metric(y_pred, y_true):
-    y_true = y_true.get_label()
-    y_pred = logistics(y_pred)
-    return 'balanced_log_loss', competition_log_loss(y_true, y_pred), False
-
 def lgb_metric(y_pred, y_true):
     y_true = y_true.get_label()
     return 'balanced_log_loss', competition_log_loss(y_true, y_pred), False
@@ -35,46 +30,3 @@ def competition_log_loss(y_true, y_pred):
     log_loss_1 = -np.sum(y_true * np.log(p_1)) / N_1
     # return the (not further weighted) average of the averages
     return (log_loss_0 + log_loss_1)/2
-
-
-def table_augmentation_logloss(real_target_mask, y_pred, data):
-    y_true = np.array(data.get_label())
-    y_pred = np.array(y_pred)
-
-    grad, hess = np.zeros((len(y_true))), np.zeros((len(y_true)))
-    feat_grad, feat_hess = logloss_derivative(
-        y_true[~real_target_mask], y_pred[~real_target_mask]
-    )
-    grad[~real_target_mask] = feat_grad/20
-    hess[~real_target_mask] = feat_hess
-
-    target_grad, target_hess = logloss_derivative(
-        y_true[real_target_mask], y_pred[real_target_mask]
-    )
-
-    grad[real_target_mask] = target_grad
-    hess[real_target_mask] = target_hess
-    return grad, hess
-
-def rmse_derivative(y_true, y_pred):
-    error = (y_pred-y_true) * 1/20 #(Nreal/Nsim) magic coefficient?
-
-    #1st derivative of loss function
-    grad = 2. * error
-
-    #2nd derivative of loss function
-    hess = 2.
-    
-    return grad, hess
-
-def logloss_derivative(y_true, y_pred):
-    preds = logistics(y_pred)
-
-    grad = (preds - y_true)
-
-    hess = (preds * (1.0 - preds))
-
-    return grad, hess
-
-def logistics(x):
-    return 1.0 / (1.0 + np.exp(-x))
