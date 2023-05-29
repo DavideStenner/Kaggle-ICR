@@ -122,7 +122,6 @@ def get_stratified_example(
     return c_1_simulated, c_2_simulated
 
 def fe_new_col_name()->list:
-    original_col = CONFIG_PROJECT["ORIGINAL_FEATURE"]
     feature_list = [
         'mean_diff',
         'std_diff',
@@ -131,8 +130,16 @@ def fe_new_col_name()->list:
         'diff_mean',
         'diff_std',
         'diff_median',
+        'mse_total',
         'mse_total_0', 'mse_total_1',
-        'mad_total', 'mean_total', 'min_total', 'max_total'
+        'mad_total', 
+        'mad_total_0', 'mad_total_1',
+        'mean_total',
+        'mean_total_0', 'mean_total_1',
+        'min_total', 
+        'min_total_0', 'min_total_1',
+        'max_total',
+        'max_total_0', 'max_total_1',
     ]
     return feature_list
 
@@ -154,6 +161,7 @@ def fe_pipeline(
     dataset_contrast['std_diff'] = dataset_contrast.std(axis=1)
     dataset_contrast['median_diff'] = dataset_contrast.median(axis=1)
 
+    #difference by row
     dataset_contrast['diff_mean'] = (
         dataset_1.mean(axis=1) -
         dataset_2.mean(axis=1)
@@ -168,11 +176,63 @@ def fe_pipeline(
         dataset_1.median(axis=1) -
         dataset_2.median(axis=1)
     ).abs()
-    
-    dataset_contrast = difference_fun_list(dataset_contrast, dataset_1, dataset_2, feature_list, target_col)
+    dataset_contrast = distance_by_all(dataset_contrast, dataset_1, dataset_2, feature_list)
+    dataset_contrast = dist_by_target(dataset_contrast, dataset_1, dataset_2, feature_list, target_col)
     return dataset_contrast
 
-def difference_fun_list(
+def distance_by_all(
+        dataset_contrast: pd.DataFrame, dataset_1: pd.DataFrame,
+        dataset_2: pd.DataFrame, feature_list: list
+    ):
+    dataset_all = pd.read_pickle(
+        os.path.join(
+            CONFIG_PROJECT["PATH_DATA"],
+            "processed_data.pkl"
+        )
+    )[feature_list]
+
+    #difference total by row
+    mean_, std_ = dataset_all.mean(), dataset_all.std()
+
+    rescaled_dataset_1 = (
+        (dataset_1[feature_list] - mean_)/std_
+    ).fillna(mean_)
+
+    rescaled_dataset_2 = (
+        (dataset_2[feature_list] - mean_)/std_
+    ).fillna(mean_)
+        
+
+    dataset_contrast['mse_total'] = np.mean(
+        np.power(rescaled_dataset_1 - rescaled_dataset_2, 2),
+        axis=1
+    )
+    dataset_contrast['mad_total'] = np.median(
+        (
+            rescaled_dataset_1 - rescaled_dataset_2
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['mean_total'] = np.mean(
+        (
+            rescaled_dataset_1 - rescaled_dataset_2
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['min_total'] = np.min(
+        (
+            rescaled_dataset_1 - rescaled_dataset_2
+        ).abs(), axis=1
+    )
+
+    dataset_contrast['max_total'] = np.max(
+        (
+            rescaled_dataset_1 - rescaled_dataset_2
+        ).abs(), axis=1
+    )
+    return dataset_contrast
+
+def dist_by_target(
         dataset_contrast: pd.DataFrame,
         dataset_1: pd.DataFrame, dataset_2: pd.DataFrame,
         feature_list: list, target_col: str
@@ -198,36 +258,34 @@ def difference_fun_list(
             (dataset_2[feature_list] - mean_)/std_
         ).fillna(mean_)
         
-        mse_ = np.mean(
+        dataset_contrast[f'mse_total_{target}'] = np.mean(
             np.power(rescaled_dataset_1 - rescaled_dataset_2, 2),
             axis=1
         )
 
-        dataset_contrast[f'mse_total_{target}'] = mse_
+        dataset_contrast[f'mad_total_{target}'] = np.median(
+            (
+                rescaled_dataset_1 - rescaled_dataset_2
+            ).abs(), axis=1
+        )
 
-    dataset_contrast['mad_total'] = np.median(
-        (
-            dataset_1[feature_list] - dataset_2[feature_list]
-        ).abs(), axis=1
-    )
+        dataset_contrast[f'mean_total_{target}'] = np.mean(
+            (
+                rescaled_dataset_1 - rescaled_dataset_2
+            ).abs(), axis=1
+        )
 
-    dataset_contrast['mean_total'] = np.mean(
-        (
-            dataset_1[feature_list] - dataset_2[feature_list]
-        ).abs(), axis=1
-    )
+        dataset_contrast[f'min_total_{target}'] = np.min(
+            (
+                rescaled_dataset_1 - rescaled_dataset_2
+            ).abs(), axis=1
+        )
 
-    dataset_contrast['min_total'] = np.min(
-        (
-            dataset_1[feature_list] - dataset_2[feature_list]
-        ).abs(), axis=1
-    )
-
-    dataset_contrast['max_total'] = np.max(
-        (
-            dataset_1[feature_list] - dataset_2[feature_list]
-        ).abs(), axis=1
-    )
+        dataset_contrast[f'max_total_{target}'] = np.max(
+            (
+                rescaled_dataset_1 - rescaled_dataset_2
+            ).abs(), axis=1
+        )
 
     return dataset_contrast
 
