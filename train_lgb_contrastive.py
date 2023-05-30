@@ -38,6 +38,7 @@ if __name__ == '__main__':
         'lambda_l2': 1,
         'verbosity': -1,
         'n_round': 1000,
+        'is_unbalance': True,
         'seed': config_project['RANDOM_STATE']
     }
     feature_list = config_project['ORIGINAL_FEATURE']

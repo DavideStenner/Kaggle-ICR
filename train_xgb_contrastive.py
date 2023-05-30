@@ -34,6 +34,7 @@ if __name__ == '__main__':
         'colsample_bytree':0.8,
         'nthread' : -1,
         'n_round': 1000,
+        'scale_pos_weight': 82215/35322,
         'seed': config_project['RANDOM_STATE']
     }
 

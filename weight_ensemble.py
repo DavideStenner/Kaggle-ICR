@@ -58,7 +58,7 @@ if __name__ == '__main__':
     res = minimize(
         scoring_fun, x0,
         options={'disp': False, 'maxiter':1000},bounds = bounds,
-        constraints = constraints, method='BFGS',
+        constraints = constraints
     )
     print(res)
     weight = res['x']/sum(res['x'])
