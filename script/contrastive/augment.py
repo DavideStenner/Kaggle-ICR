@@ -5,7 +5,9 @@ import numpy as np
 import pandas as pd
 
 from typing import Tuple
+from random import sample
 from itertools import combinations
+from operator import itemgetter 
 
 with open('config.json') as config_file:
     CONFIG_PROJECT = json.load(config_file)
@@ -30,7 +32,8 @@ def get_all_combination(data: pd.DataFrame, inference: bool, num_simulation: int
     return c_1_simulated, c_2_simulated
 
 def get_all_combination_stratified(
-        data: pd.DataFrame, original_tgt_label: str
+        data: pd.DataFrame, original_tgt_label: str,
+        inference: bool
     ) -> Tuple[list, list]:
     
     print('Getting index')
@@ -47,25 +50,35 @@ def get_all_combination_stratified(
     observation_1 = data.loc[c_1_simulated].reset_index()
     observation_2 = data.loc[c_2_simulated].reset_index()
 
-    # mask_1_1 = (observation_1[original_tgt_label] + observation_2[original_tgt_label]) == 2
     mask_unequal = (observation_1[original_tgt_label] + observation_2[original_tgt_label]) == 1
     mask_0_0 = (observation_1[original_tgt_label] + observation_2[original_tgt_label]) == 0
 
-    # c_1_1_equal_simulated = list(observation_1.loc[mask_1_1, 'index'])
-    # c_1_2_equal_simulated = list(observation_2.loc[mask_1_1, 'index'])
+    sum_unequal, sum_equal = sum(mask_unequal), sum(mask_0_0)
 
-    # ratio_1_0 = data[original_tgt_label].mean()
-    # number_equal = len(c_1_1_equal_simulated)
-    # number_unequal = int(number_equal/ratio_1_0)
-    max_sample = min(sum(mask_unequal), sum(mask_0_0))
-    number_equal, number_unequal = max_sample, max_sample
+    if inference:
+        number_unequal, number_equal = sum_unequal, sum_equal
+    else:
+        number_unequal, number_equal = sum_unequal, sum_equal
 
-    c_1_unequal_simulated = list(observation_1.loc[mask_unequal, 'index'])[:number_unequal]
-    c_2_unequal_simulated = list(observation_2.loc[mask_unequal, 'index'])[:number_unequal]
+    unequal_index = sample(range(sum_unequal), number_unequal)
+    equal_index = sample(range(sum_equal), number_equal)
 
-    c_0_1_equal_simulated = list(observation_1.loc[mask_0_0, 'index'])[:number_equal]
-    c_0_2_equal_simulated = list(observation_2.loc[mask_0_0, 'index'])[:number_equal]
+    unequal_sampler, equal_sampler = itemgetter(*unequal_index), itemgetter(*equal_index)
 
+    c_1_unequal_simulated = unequal_sampler(
+        list(observation_1.loc[mask_unequal, 'index'])
+    )
+    
+    c_2_unequal_simulated = unequal_sampler(
+        list(observation_2.loc[mask_unequal, 'index'])
+    )
+
+    c_0_1_equal_simulated = equal_sampler(
+        list(observation_1.loc[mask_0_0, 'index'])
+    )
+    c_0_2_equal_simulated = equal_sampler(
+        list(observation_2.loc[mask_0_0, 'index'])
+    )
 
     print(f'{number_unequal} 0-1; {number_equal} 0-0')
     c_1_simulated = c_1_unequal_simulated + c_0_1_equal_simulated #+ c_1_1_equal_simulated
@@ -294,7 +307,7 @@ def contrastive_pipeline(
         original_tgt_label: str, num_simulation: int = None
     ) -> pd.DataFrame:
 
-    c_1_simulated, c_2_simulated = get_all_combination_stratified(data, original_tgt_label)
+    c_1_simulated, c_2_simulated = get_all_combination_stratified(data, original_tgt_label, inference)
     col_used = feature_list + [original_tgt_label]
 
     c_1_data = data.loc[
