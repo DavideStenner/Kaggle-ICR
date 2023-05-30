@@ -1,5 +1,10 @@
 import numpy as np
 
+def calc_log_loss_weight(y_true):
+    nc = np.bincount(y_true)
+    w0, w1 = 1/(nc[0]/y_true.shape[0]), 1/(nc[1]/y_true.shape[0])
+    return w0, w1
+
 def lgb_metric(y_pred, y_true):
     y_true = y_true.get_label()
     return 'balanced_log_loss', competition_log_loss(y_true, y_pred), False

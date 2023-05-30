@@ -14,7 +14,7 @@ from typing import Tuple
 from sklearn.metrics import roc_auc_score, log_loss
 
 from script.contrastive.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
-from script.loss import competition_log_loss
+from script.loss import competition_log_loss, calc_log_loss_weight
 
 def get_augment_dataset(
         data: pd.DataFrame, fold_: int, inference: bool,
@@ -35,7 +35,11 @@ def get_augment_dataset(
     train_x = data[used_col].to_numpy('float32')
     train_y = data['target_contrast'].to_numpy('float32')
 
-    dataset = lgb.Dataset(train_x, train_y)
+    w0, w1 = calc_log_loss_weight(data['target_contrast'])
+    
+    weight_ = data['target_contrast'].map({0: w0, 1: w1})
+
+    dataset = lgb.Dataset(train_x, train_y, weight=weight_)
 
     return dataset
 

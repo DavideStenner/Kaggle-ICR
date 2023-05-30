@@ -12,12 +12,7 @@ import matplotlib.pyplot as plt
 from typing import Tuple
 
 from sklearn.metrics import roc_auc_score, log_loss
-from script.loss import competition_log_loss
-
-def calc_log_loss_weight(y_true):
-    nc = np.bincount(y_true)
-    w0, w1 = 1/(nc[0]/y_true.shape[0]), 1/(nc[1]/y_true.shape[0])
-    return w0, w1
+from script.loss import competition_log_loss, calc_log_loss_weight
 
 def get_dataset(
         data: pd.DataFrame, fold_: int, inference: bool,
