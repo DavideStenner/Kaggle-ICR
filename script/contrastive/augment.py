@@ -135,14 +135,11 @@ def get_stratified_example(
     return c_1_simulated, c_2_simulated
 
 def fe_new_col_name()->list:
+
     feature_list = [
-        'mean_diff',
-        'std_diff',
-        'median_diff',
-        'number_zero',
-        'diff_mean',
-        'diff_std',
-        'diff_median',
+        'number_zero', 'mean_diff', 'std_diff',
+        'median_diff', 'max_diff', 'min_diff',
+        'diff_mean', 'diff_std', 'diff_median',
         'mse_total',
         'mse_total_0', 'mse_total_1',
         'mad_total', 
@@ -153,7 +150,10 @@ def fe_new_col_name()->list:
         'min_total_0', 'min_total_1',
         'max_total',
         'max_total_0', 'max_total_1',
+        'log_mean_diff', 'log_std_diff', 'log_median_diff',
+        'log_max_diff', 'log_min_diff'
     ]
+    feature_list += ['log_diff_' + x for x in CONFIG_PROJECT['ORIGINAL_FEATURE']]
     return feature_list
 
 def fe_pipeline(
@@ -169,12 +169,15 @@ def fe_pipeline(
             dataset_2
         ).abs(), columns=feature_list
     )
+    #aggregation over difference
     dataset_contrast['number_zero'] = (dataset_contrast == 0).sum(axis=1)
     dataset_contrast['mean_diff'] = dataset_contrast.mean(axis=1)
     dataset_contrast['std_diff'] = dataset_contrast.std(axis=1)
     dataset_contrast['median_diff'] = dataset_contrast.median(axis=1)
+    dataset_contrast['max_diff'] = dataset_contrast.median(axis=1)
+    dataset_contrast['min_diff'] = dataset_contrast.median(axis=1)
 
-    #difference by row
+    #difference by row of aggregation
     dataset_contrast['diff_mean'] = (
         dataset_1.mean(axis=1) -
         dataset_2.mean(axis=1)
@@ -191,6 +194,20 @@ def fe_pipeline(
     ).abs()
     dataset_contrast = distance_by_all(dataset_contrast, dataset_1, dataset_2, feature_list)
     dataset_contrast = dist_by_target(dataset_contrast, dataset_1, dataset_2, feature_list, target_col)
+    
+    #log difference
+    for col in feature_list:
+        dataset_contrast[f'log_diff_{col}'] = (np.log1p(dataset_1[col]) - np.log1p(dataset_2[col])).abs()
+
+    log_feature_list = [f'log_diff_{col}' for col in feature_list]
+
+    #aggregation over log difference
+    dataset_contrast['log_mean_diff'] = dataset_contrast[log_feature_list].mean(axis=1)
+    dataset_contrast['log_std_diff'] = dataset_contrast[log_feature_list].std(axis=1)
+    dataset_contrast['log_median_diff'] = dataset_contrast[log_feature_list].median(axis=1)
+    dataset_contrast['log_max_diff'] = dataset_contrast[log_feature_list].max(axis=1)
+    dataset_contrast['log_min_diff'] = dataset_contrast[log_feature_list].min(axis=1)
+
     return dataset_contrast
 
 def distance_by_all(
