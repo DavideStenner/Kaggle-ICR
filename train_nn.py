@@ -26,6 +26,7 @@ if __name__ == '__main__':
     print('Starting lgb Experiment', config_project['NAME'])
 
     config_model = {
+        'batch_size_pretraining': 64,
         'batch_size': 16,
         'num_workers': 4,
         #huggingface model
@@ -35,18 +36,22 @@ if __name__ == '__main__':
         'dev_run': False,
         'n_fold': 5,
         'random_state': config_project['RANDOM_STATE'],
-        'max_epochs_pretraining': 1,
-        'max_epochs': 15,
+        'max_epochs_pretraining': 15,
+        'max_epochs': 50,
         #number of step. disable with -1.
         'max_steps': -1,
         #trainer parameter --> check loss every n step. put 0.95 to disable this.
         'val_check_interval': 0.95,
         'accelerator': "gpu" if torch.cuda.is_available() else "cpu",
-        'lr': 1e-4,
+        'lr_pretraining': 1e-3,
+        'lr': 1e-3,
         #used for logging
-        'version_experiment': 'deberta_benchmark',
+        'version_experiment': 'contrastive-benchmark',
         'progress_bar': False,
-        'num_features': 56
+        'num_features': 56,
+        'embedding_size': 4096,
+        #set None to disable it
+        'pos_weight': 509/108
     }
     feature_list = config_project['ORIGINAL_FEATURE']
     

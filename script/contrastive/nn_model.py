@@ -1,6 +1,5 @@
 import os
 import torch
-from torchmetrics.classification import BinaryAUROC
 
 import numpy as np
 import pandas as pd
@@ -12,6 +11,7 @@ from typing import Tuple, List
 from collections import OrderedDict
 from torch.utils.data import DataLoader, Dataset
 
+from script.loss import competition_log_loss
 from script.contrastive.augment_nn import get_all_combination_stratified
 
 class CosineSimilarityLoss(nn.Module):
@@ -48,6 +48,29 @@ class CosineSimilarityLoss(nn.Module):
         output = self.cos_score_transformation(torch.cosine_similarity(embeddings[0], embeddings[1]))
         return self.loss_fct(output, labels.view(-1))
 
+class Normalize(nn.Module):
+    def __init__(self):
+        super(Normalize, self).__init__()
+        self.normalize = nn.functional.normalize
+        
+    def forward(self, x):
+        x = self.normalize(x)
+        return x
+
+class FFLayer(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(FFLayer, self).__init__()
+
+        self.input_size = input_size
+        self.output_size = output_size
+        self.ff_layer = nn.Sequential(
+            nn.Linear(self.input_size, self.output_size),
+            nn.GELU(),
+            nn.BatchNorm1d(self.output_size),
+        )
+    def forward(self, x):
+        return self.ff_layer(x)
+
 class ContrastiveClassifier(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
@@ -55,30 +78,18 @@ class ContrastiveClassifier(pl.LightningModule):
         self.config = config
         self.init_pretraining_setup()
 
-        if self.config['lr'] is not None:
-            self.lr = self.config['lr']
-
+        self.embedding_size = config['embedding_size']
+        self.pos_weight = None if config['pos_weight'] is None else torch.FloatTensor([config['pos_weight']])
         num_features = config['num_features']
 
         self.classification_head = nn.Sequential(
-            nn.Linear(num_features*15, num_features*5),
-            nn.GELU(),
-            nn.BatchNorm1d(num_features*5),
-            nn.Linear(num_features*5, num_features),
-            nn.GELU(),
-            nn.BatchNorm1d(num_features),
+            FFLayer(self.embedding_size, num_features),
             nn.Linear(num_features, 1)
         )
         self.contrastive_ff = nn.Sequential(
-            nn.Linear(num_features, num_features*2),
-            nn.GELU(),
-            nn.BatchNorm1d(num_features*2),
-            nn.Linear(num_features*2, num_features*10),
-            nn.GELU(),
-            nn.BatchNorm1d(num_features*10),
-            nn.Linear(num_features*10, num_features*15),
-            nn.GELU(),
-            nn.BatchNorm1d(num_features*15)
+            FFLayer(num_features, self.embedding_size//2),
+            FFLayer(self.embedding_size//2, self.embedding_size),
+            Normalize()
         )
         
         self.step_outputs = {
@@ -89,13 +100,15 @@ class ContrastiveClassifier(pl.LightningModule):
         self.save_hyperparameters()
 
     def init_pretraining_setup(self) -> None:
+        self.lr = self.config['lr_pretraining']
+
         self.criterion = CosineSimilarityLoss()
         self.pretraining: bool = True
 
     def init_classifier_setup(self) -> None:
-        self.criterion = nn.BCEWithLogitsLoss()
-        
-        self.auc = BinaryAUROC()
+        self.lr = self.config['lr']
+        self.criterion = nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
+        self.comp_loss = competition_log_loss
 
         self.froze_layer()
         self.pretraining: bool = False
@@ -110,12 +123,11 @@ class ContrastiveClassifier(pl.LightningModule):
     def __classifier_metric_step(self, pred: torch.tensor, labels: torch.tensor) -> dict:
         #can't calculate auc on a single batch.
         if self.trainer.sanity_checking:
-            return {'auc': 0.5}
-        
-        #auc_mu_required labels, pred        
-        auc_score = self.auc(pred, labels)
+            return {'comp_loss': 0.5}
 
-        return {'auc': auc_score}
+        comp_loss_score = self.comp_loss(labels.numpy(), pred.numpy())
+
+        return {'comp_loss': comp_loss_score}
     
     def __loss_step(self, 
             pred: torch.tensor | List[torch.tensor], 
@@ -387,7 +399,7 @@ def run_nn_contrastive_experiment(
 
         train_loader = DataLoader(
             train_dataset,
-            batch_size=config_model['batch_size'],
+            batch_size=config_model['batch_size_pretraining'],
             shuffle=True,
             pin_memory=True,
             drop_last=True,
@@ -396,16 +408,16 @@ def run_nn_contrastive_experiment(
         
         valid_loader = DataLoader(
             valid_dataset,
-            batch_size=config_model['batch_size']*2,
+            batch_size=config_model['batch_size_pretraining']*2,
             shuffle=False,
             pin_memory=True,
             drop_last=False,
             num_workers=config_model['num_workers']
         )
 
-        loggers = pl.loggers.CSVLogger(
+        loggers_pretraining = pl.loggers.CSVLogger(
             save_dir=log_folder,
-            name='csv_log',
+            name='pretraining',
             version=config_model['version_experiment']
         )
 
@@ -416,7 +428,7 @@ def run_nn_contrastive_experiment(
             accelerator=config_model['accelerator'],
             val_check_interval=config_model['val_check_interval'],
             enable_progress_bar=(config_model['debug_run']) | (config_model['progress_bar']),
-            logger=[loggers],
+            logger=[loggers_pretraining],
             enable_checkpointing=False
         )
         
@@ -453,6 +465,12 @@ def run_nn_contrastive_experiment(
             num_workers=config_model['num_workers']
         )
 
+        loggers_training = pl.loggers.CSVLogger(
+            save_dir=log_folder,
+            name='training',
+            version=config_model['version_experiment']
+        )
+
         classifier_trainer = pl.Trainer(
             max_epochs=config_model['max_epochs'],
             max_steps=config_model['max_steps'],
@@ -460,7 +478,7 @@ def run_nn_contrastive_experiment(
             accelerator=config_model['accelerator'],
             val_check_interval=config_model['val_check_interval'],
             enable_progress_bar=(config_model['debug_run']) | (config_model['progress_bar']),
-            logger=[loggers],
+            logger=[loggers_training],
             enable_checkpointing=False
         )
         print('\n\nStarting training\n\n')
