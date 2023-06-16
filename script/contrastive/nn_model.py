@@ -1,5 +1,7 @@
 import os
+import glob
 import torch
+import json
 
 import numpy as np
 import pandas as pd
@@ -83,8 +85,7 @@ class ContrastiveClassifier(pl.LightningModule):
         num_features = config['num_features']
 
         self.classification_head = nn.Sequential(
-            FFLayer(self.embedding_size, num_features),
-            nn.Linear(num_features, 1)
+            nn.Linear(self.embedding_size, 1)
         )
         self.contrastive_ff = nn.Sequential(
             FFLayer(num_features, self.embedding_size//2),
@@ -124,8 +125,15 @@ class ContrastiveClassifier(pl.LightningModule):
         #can't calculate auc on a single batch.
         if self.trainer.sanity_checking:
             return {'comp_loss': 0.5}
-
-        comp_loss_score = self.comp_loss(labels.numpy(), pred.numpy())
+        labels = (
+            labels.numpy() if self.config['accelerator'] == 'cpu'
+            else labels.cpu().numpy()
+        )
+        pred = (
+            pred.numpy() if self.config['accelerator'] == 'cpu'
+            else pred.cpu().numpy()
+        )
+        comp_loss_score = self.comp_loss(labels, pred)
 
         return {'comp_loss': comp_loss_score}
     
@@ -483,3 +491,61 @@ def run_nn_contrastive_experiment(
         )
         print('\n\nStarting training\n\n')
         classifier_trainer.fit(model_, train_loader, valid_loader)
+
+def eval_nn_contrastive_experiment(
+    config_experiment: dict, step: str, 
+) -> None:
+    assert step in ['training', 'pretraining']
+    loss_name = 'val_loss' if step=='pretraining' else 'val_comp_loss'
+
+    save_path = os.path.join(
+        config_experiment['SAVE_RESULTS_PATH'],
+        config_experiment['NAME']
+    )
+    path_results = os.path.join(
+        save_path, 
+        f'log\log_fold_*\{step}\*\metrics.csv'
+    )
+    metric_list = glob.glob(path_results)
+    data = [
+        pd.read_csv(path)
+        for path in metric_list
+    ]
+    progress_dict = {
+        'step': data[0]['step'],
+    }
+
+    progress_dict.update(
+        {
+            f"{loss_name}_fold_{i}": data[i][loss_name]
+            for i in range(5)
+        }
+    )
+    progress_df = pd.DataFrame(progress_dict)
+    progress_df[f"average_{loss_name}"] = progress_df.loc[
+        :, [loss_name in x for x in progress_df.columns]
+    ].mean(axis =1)
+
+    best_epoch = progress_df[f"average_{loss_name}"].argmin()
+    best_step = progress_df.loc[
+        best_epoch, "step"
+    ]
+    best_score = progress_df[f"average_{loss_name}"].min()
+
+    best_score = {
+        'best_epoch': int(best_epoch),
+        'best_step': int(best_step),
+        'best_score': best_score
+    }
+    print('\n')
+    print(f'Best CV {loss_name} score for {step}')
+    print(best_score)
+    print('\n')
+    
+    with open(
+            os.path.join(
+                save_path,
+                f'best_result_nn_{step}.txt'
+            ), 'w'
+        ) as file:
+            json.dump(best_score, file)

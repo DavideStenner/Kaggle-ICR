@@ -1,4 +1,4 @@
-
+import os
 import json
 import torch
 
@@ -7,7 +7,8 @@ from script.contrastive.nn_model import (
     run_nn_contrastive_experiment, eval_nn_contrastive_experiment
 )
 
-if __name__ == '__main__':
+def run_single_experiment(experiment_position: str, model_kwars: dict) -> None:
+
     with open('config.json') as config_file:
         config_project = json.load(config_file)
 
@@ -24,6 +25,9 @@ if __name__ == '__main__':
         ).issubset(set(config_experiment.keys()))
 
     config_project.update(config_experiment)
+    config_project['NAME'] = os.path.join(
+        config_project['NAME'], experiment_position
+    )
 
     print('Starting Experiment', config_project['NAME'])
 
@@ -38,8 +42,6 @@ if __name__ == '__main__':
         'dev_run': False,
         'n_fold': 5,
         'random_state': config_project['RANDOM_STATE'],
-        'max_epochs_pretraining': 15,
-        'max_epochs': 50,
         #number of step. disable with -1.
         'max_steps': -1,
         #trainer parameter --> check loss every n step. put 0.95 to disable this.
@@ -51,10 +53,11 @@ if __name__ == '__main__':
         'version_experiment': 'contrastive-benchmark',
         'progress_bar': False,
         'num_features': 56,
-        'embedding_size': 2048,
         #set None to disable it
-        'pos_weight': 509/108
+        'pos_weight': 509/108,
+        **model_kwars
     }
+
     feature_list = config_project['ORIGINAL_FEATURE']
     
     if config_project['TRAIN_MODEL']:

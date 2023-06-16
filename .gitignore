@@ -1,5 +1,5 @@
 kaggle.json
-.venv
+.venv*
 icr-identify-age-related-conditions.zip
 data/*
 !data/

@@ -3,3 +3,4 @@ shap
 seaborn
 matplotlib
 xgboost
+pytorch_lightning
