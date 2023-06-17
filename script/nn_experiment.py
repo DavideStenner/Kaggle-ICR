@@ -45,7 +45,10 @@ def run_single_experiment(experiment_position: str, model_kwars: dict) -> None:
         #number of step. disable with -1.
         'max_steps': -1,
         #trainer parameter --> check loss every n step. put 0.95 to disable this.
+        'val_check_interval_pretraining': 0.95,
         'val_check_interval': 0.95,
+        'num_sanity_val_steps_pretraining': 0,
+        'num_sanity_val_steps': 0, 
         'accelerator': "gpu" if torch.cuda.is_available() else "cpu",
         'lr_pretraining': 1e-3,
         'lr': 1e-3,

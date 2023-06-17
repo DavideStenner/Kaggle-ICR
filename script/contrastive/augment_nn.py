@@ -28,13 +28,17 @@ def get_all_combination_stratified(
     mask_0_0 = (observation_1[original_tgt_label] + observation_2[original_tgt_label]) == 0
     mask_1_1 = (observation_1[original_tgt_label] + observation_2[original_tgt_label]) == 2
 
-    sum_unequal, sum_equal = sum(mask_unequal), min(sum(mask_0_0), sum(mask_1_1))
-    number_simulation = min(sum_unequal, sum_equal)
+    sum_unequal, sum_0_0, sum_1_1 = sum(mask_unequal), sum(mask_0_0), sum(mask_1_1)
+    equal_agg_num = min(sum_0_0, sum_1_1)
 
-    equal_0_0_index = sample(range(sum_equal), number_simulation)
-    equal_1_1_index = sample(range(sum_equal), number_simulation)
+    num_sim_unequal = num_sim_equal = min(sum_unequal, equal_agg_num)
+    num_0_0_equal = min(sum_0_0, num_sim_equal)
+    num_1_1_equal = min(sum_1_1, num_sim_equal)
+    
+    equal_0_0_index = sample(range(sum_0_0), num_0_0_equal)
+    equal_1_1_index = sample(range(sum_1_1), num_1_1_equal)
 
-    unequal_index = sample(range(sum_unequal), number_simulation*2)
+    unequal_index = sample(range(sum_unequal), num_sim_unequal)
 
     unequal_sampler, equal_0_0_sampler, equal_1_1_sampler = (
         itemgetter(*unequal_index), itemgetter(*equal_0_0_index),
@@ -63,7 +67,7 @@ def get_all_combination_stratified(
         list(observation_2.loc[mask_1_1, 'index'])
     )
 
-    print(f'{number_simulation*2} unequal; {number_simulation} 1-1; {number_simulation} 0-0')
+    print(f'{num_sim_unequal} unequal; {num_1_1_equal} 1-1; {num_0_0_equal} 0-0')
     c_1_simulated = c_1_unequal_simulated + c_1_equal_0_0_simulated + c_1_equal_1_1_simulated
     c_2_simulated = c_2_unequal_simulated + c_2_equal_0_0_simulated + c_2_equal_1_1_simulated
 

@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
     config_model = {
         'batch_size_pretraining': 64,
-        'batch_size': 16,
+        'batch_size': 32,
         'num_workers': 4,
         #huggingface model
         #entire script debug run
@@ -38,12 +38,15 @@ if __name__ == '__main__':
         'dev_run': False,
         'n_fold': 5,
         'random_state': config_project['RANDOM_STATE'],
-        'max_epochs_pretraining': 15,
-        'max_epochs': 50,
+        'max_epochs_pretraining': 10,
+        'max_epochs': 10,
         #number of step. disable with -1.
         'max_steps': -1,
         #trainer parameter --> check loss every n step. put 0.95 to disable this.
+        'val_check_interval_pretraining': 0.95,
         'val_check_interval': 0.95,
+        'num_sanity_val_steps_pretraining': 0,
+        'num_sanity_val_steps': 0, 
         'accelerator': "gpu" if torch.cuda.is_available() else "cpu",
         'lr_pretraining': 1e-3,
         'lr': 1e-3,
@@ -51,9 +54,9 @@ if __name__ == '__main__':
         'version_experiment': 'contrastive-benchmark',
         'progress_bar': False,
         'num_features': 56,
-        'embedding_size': 2048,
-        #set None to disable it
-        'pos_weight': 509/108
+        'embedding_size': 512,
+        #None -> each fold wil calculate it's weight
+        'pos_weight': None
     }
     feature_list = config_project['ORIGINAL_FEATURE']
     
