@@ -6,15 +6,54 @@ import json
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
+import torch.nn.functional as F
 
 
 from torch import nn
+from enum import Enum
 from typing import Tuple, List
 from collections import OrderedDict
 from torch.utils.data import DataLoader, Dataset
 
-from script.loss import competition_log_loss
+from script.loss import competition_log_loss, calc_log_loss_weight
 from script.contrastive.augment_nn import get_all_combination_stratified
+
+
+class SiameseDistanceMetric(Enum):
+    """
+    The metric for the contrastive loss
+    """
+    EUCLIDEAN = lambda x, y: F.pairwise_distance(x, y, p=2)
+    MANHATTAN = lambda x, y: F.pairwise_distance(x, y, p=1)
+    COSINE_DISTANCE = lambda x, y: 1-F.cosine_similarity(x, y)
+
+
+class ContrastiveLoss(nn.Module):
+    """
+    Contrastive loss. Expects as input two texts and a label of either 0 or 1. If the label == 1, then the distance between the
+    two embeddings is reduced. If the label == 0, then the distance between the embeddings is increased.
+
+    Further information: http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+
+    :param model: model
+    :param distance_metric: Function that returns a distance between two embeddings. The class SiameseDistanceMetric contains pre-defined metrices that can be used
+    :param margin: Negative samples (label == 0) should have a distance of at least the margin value.
+    :param size_average: Average by the size of the mini-batch.
+
+    """
+
+    def __init__(self, distance_metric=SiameseDistanceMetric.COSINE_DISTANCE, margin: float = 0.5, size_average:bool = True):
+        super(ContrastiveLoss, self).__init__()
+
+        self.distance_metric = distance_metric
+        self.margin = margin
+        self.size_average = size_average
+
+    def forward(self, embeddings_list, labels):
+        rep_anchor, rep_other = embeddings_list
+        distances = self.distance_metric(rep_anchor, rep_other)
+        losses = 0.5 * (labels.float() * distances.pow(2) + (1 - labels).float() * F.relu(self.margin - distances).pow(2))
+        return losses.mean() if self.size_average else losses.sum()
 
 class CosineSimilarityLoss(nn.Module):
     """
@@ -23,21 +62,9 @@ class CosineSimilarityLoss(nn.Module):
     It computes the vectors u = model(input_text[0]) and v = model(input_text[1]) and measures the cosine-similarity between the two.
     By default, it minimizes the following loss: ||input_label - cos_score_transformation(cosine_sim(u,v))||_2.
 
-    :param model: SentenceTransformer model
+    :param model: model
     :param loss_fct: Which pytorch loss function should be used to compare the cosine_similartiy(u,v) with the input_label? By default, MSE:  ||input_label - cosine_sim(u,v)||_2
     :param cos_score_transformation: The cos_score_transformation function is applied on top of cosine_similarity. By default, the identify function is used (i.e. no change).
-
-    Example::
-
-            from sentence_transformers import SentenceTransformer, SentencesDataset, InputExample, losses
-
-            model = SentenceTransformer('distilbert-base-nli-mean-tokens')
-            train_examples = [InputExample(texts=['My first sentence', 'My second sentence'], label=0.8),
-                InputExample(texts=['Another pair', 'Unrelated sentence'], label=0.3)]
-            train_dataset = SentencesDataset(train_examples, model)
-            train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=train_batch_size)
-            train_loss = losses.CosineSimilarityLoss(model=model)
-
 
     """
     def __init__(self, loss_fct = nn.MSELoss(), cos_score_transformation=nn.Identity()):
@@ -53,7 +80,7 @@ class CosineSimilarityLoss(nn.Module):
 class Normalize(nn.Module):
     def __init__(self):
         super(Normalize, self).__init__()
-        self.normalize = nn.functional.normalize
+        self.normalize = F.normalize
         
     def forward(self, x):
         x = self.normalize(x)
@@ -88,7 +115,9 @@ class ContrastiveClassifier(pl.LightningModule):
             nn.Linear(self.embedding_size, 1)
         )
         self.contrastive_ff = nn.Sequential(
-            FFLayer(num_features, self.embedding_size//2),
+            FFLayer(num_features, self.embedding_size//5),
+            FFLayer(self.embedding_size//5, self.embedding_size//2),
+            FFLayer(self.embedding_size//2, self.embedding_size//2),
             FFLayer(self.embedding_size//2, self.embedding_size),
             Normalize()
         )
@@ -103,7 +132,7 @@ class ContrastiveClassifier(pl.LightningModule):
     def init_pretraining_setup(self) -> None:
         self.lr = self.config['lr_pretraining']
 
-        self.criterion = CosineSimilarityLoss()
+        self.criterion = ContrastiveLoss()
         self.pretraining: bool = True
 
     def init_classifier_setup(self) -> None:
@@ -401,10 +430,16 @@ def run_nn_contrastive_experiment(
             target_col=target_col, feature_list=feature_list,
         )
         valid_dataset = get_contrastive_dataset(
-            data=train, fold_=fold_, validation=False, 
+            data=train, fold_=fold_, validation=True, 
             target_col=target_col, feature_list=feature_list,
         )
-
+        w_0, w_1 = calc_log_loss_weight(
+            train.loc[
+                train['fold']==fold_, config_experiment['TARGET_COL']
+            ].values
+        )
+        config_model[f'pos_weight'] = w_1/w_0
+        
         train_loader = DataLoader(
             train_dataset,
             batch_size=config_model['batch_size_pretraining'],
@@ -434,8 +469,9 @@ def run_nn_contrastive_experiment(
             max_steps=config_model['max_steps'],
             fast_dev_run=config_model['dev_run'], 
             accelerator=config_model['accelerator'],
-            val_check_interval=config_model['val_check_interval'],
+            val_check_interval=config_model['val_check_interval_pretraining'],
             enable_progress_bar=(config_model['debug_run']) | (config_model['progress_bar']),
+            num_sanity_val_steps=config_model['num_sanity_val_steps_pretraining'],
             logger=[loggers_pretraining],
             enable_checkpointing=False
         )
@@ -486,6 +522,7 @@ def run_nn_contrastive_experiment(
             accelerator=config_model['accelerator'],
             val_check_interval=config_model['val_check_interval'],
             enable_progress_bar=(config_model['debug_run']) | (config_model['progress_bar']),
+            num_sanity_val_steps=config_model['num_sanity_val_steps'],
             logger=[loggers_training],
             enable_checkpointing=False
         )
