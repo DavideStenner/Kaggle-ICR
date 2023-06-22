@@ -624,8 +624,9 @@ def define_folder_structure(config_experiment: dict, fold_: int):
     else:
         print('Deleting previous image')
         image_path_list = os.listdir(plot_folder)
+
         for image_path in image_path_list:
-            os.remove(image_path)
+            os.remove(os.path.join(plot_folder, image_path))
 
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
