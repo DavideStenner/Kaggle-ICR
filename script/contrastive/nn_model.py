@@ -15,6 +15,7 @@ from typing import Tuple, List
 from collections import OrderedDict
 from torch.utils.data import DataLoader, Dataset
 
+from script.tabnet.tab_network import TabNet, TabNetNoEmbeddings
 from script.loss import competition_log_loss, calc_log_loss_weight
 from script.contrastive.augment_nn import get_all_combination_stratified
 
@@ -100,6 +101,16 @@ class FFLayer(nn.Module):
     def forward(self, x):
         return self.ff_layer(x)
 
+class TabnetLayer(nn.Module):
+    def __init__(self, **kwargs):
+        super(TabnetLayer, self).__init__()
+        self.tabnet = TabNetNoEmbeddings(
+            **kwargs
+        )
+    def forward(self, x):
+        pred, _ = self.tabnet(x)
+        return pred
+    
 class ContrastiveClassifier(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
@@ -114,11 +125,18 @@ class ContrastiveClassifier(pl.LightningModule):
         self.classification_head = nn.Sequential(
             nn.Linear(self.embedding_size, 1)
         )
-        self.contrastive_ff = nn.Sequential(
-            FFLayer(num_features, self.embedding_size//5),
-            FFLayer(self.embedding_size//5, self.embedding_size//2),
-            FFLayer(self.embedding_size//2, self.embedding_size//2),
-            FFLayer(self.embedding_size//2, self.embedding_size),
+        # self.contrastive_ff = nn.Sequential(
+        #     TabnetLayer(
+        #         input_dim=num_features,
+        #         output_dim=self.embedding_size,
+        #         n_a=64,
+        #         n_d=64,
+        #         virtual_batch_size=16,
+        #         group_attention_matrix=None
+        #     ),
+        #     Normalize()
+        # )
+
             Normalize()
         )
         
