@@ -16,9 +16,11 @@ from enum import Enum
 from typing import Tuple, List
 from collections import OrderedDict
 from sklearn.decomposition import PCA
+from sklearn_extra.cluster import KMedoids
+from sklearn.metrics import adjusted_rand_score
 from torch.utils.data import DataLoader, Dataset
 
-from script.tabnet.tab_network import TabNet, TabNetNoEmbeddings
+from script.tabnet.tab_network import TabNetNoEmbeddings
 from script.loss import competition_log_loss, calc_log_loss_weight
 from script.contrastive.augment_nn import get_all_combination_stratified
 
@@ -272,7 +274,7 @@ class ContrastiveClassifier(pl.LightningModule):
         ]
 
         if mode != 'train':
-            self.pretraining_inspection()
+            metric_message_list = self.pretraining_inspection(metric_message_list, mode)
             
             if not self.pretraining:
                 #evaluate on all dataset
@@ -313,12 +315,12 @@ class ContrastiveClassifier(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
     
-    def pretraining_inspection(self):
+    def pretraining_inspection(self, metric_message_list:list, mode: str):
         if not self.pretraining:
-            return
+            return metric_message_list
         else:
             if self.valid_dataset is None:
-                return
+                return metric_message_list
             else:
 
                 embeddings = []
@@ -331,7 +333,7 @@ class ContrastiveClassifier(pl.LightningModule):
                     embedding = self.contrastive_ff(input_).cpu().numpy().tolist()
                     label = label.numpy().tolist()
 
-                    embeddings += (embedding)
+                    embeddings += embedding
                     labels += label
 
                 pca_ = PCA(n_components=2)
@@ -344,9 +346,26 @@ class ContrastiveClassifier(pl.LightningModule):
                         'labels': labels
                     }
                 )
-                sns.scatterplot(data=results, x="pca_1", y="pca_2", hue="labels")
-                plt.show()
+                plot = sns.scatterplot(data=results, x="pca_1", y="pca_2", hue="labels").get_figure()
+                plot.savefig(
+                    os.path.join(
+                        self.config['plot_folder'],
+                        f'{self.trainer.global_step}_cluster.png'
+                    )
+                )
 
+                if self.config['show_plot']:
+                    plot
+                    plt.show()
+
+                cluster_model = KMedoids(n_clusters=2, metric='euclidean')
+                cluster_model.fit(embeddings)
+                
+                metric_score = adjusted_rand_score(labels, cluster_model.labels_)
+                metric_message_list += [
+                    f'{mode}_adj_rand: {metric_score:.5f}'
+                ]
+                return metric_message_list
 
     def forward(self, inputs):
         
