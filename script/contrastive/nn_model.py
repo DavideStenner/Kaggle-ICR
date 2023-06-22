@@ -596,6 +596,42 @@ def get_training_dataset_loader(
         train_loader_training, valid_loader_training
     )
 
+def define_folder_structure(config_experiment: dict, fold_: int):
+    log_folder = os.path.join(
+        config_experiment['SAVE_RESULTS_PATH'],
+        config_experiment['NAME'],
+        'log',
+        f'log_fold_{fold_}'
+    )
+    plot_folder = os.path.join(
+        config_experiment['SAVE_RESULTS_PATH'],
+        config_experiment['NAME'],
+        'plot',
+        f'plot_fold_{fold_}'
+    )
+    model_folder = os.path.join(
+        config_experiment['SAVE_RESULTS_PATH'],
+        config_experiment['NAME'],
+        'model',
+        f'model_fold_{fold_}'
+    )
+
+    if not os.path.exists(log_folder):
+        os.makedirs(log_folder)
+
+    if not os.path.exists(plot_folder):
+        os.makedirs(plot_folder)
+    else:
+        print('Deleting previous image')
+        image_path_list = os.listdir(plot_folder)
+        for image_path in image_path_list:
+            os.remove(image_path)
+
+    if not os.path.exists(model_folder):
+        os.makedirs(model_folder)
+
+    return log_folder, plot_folder, model_folder
+
 def run_nn_contrastive_experiment(
         config_experiment: dict, config_model: dict, 
         feature_list: list, target_col: str,
@@ -610,22 +646,15 @@ def run_nn_contrastive_experiment(
 
     for fold_ in range(config_experiment['N_FOLD']):
 
-        log_folder = os.path.join(
-            config_experiment['SAVE_RESULTS_PATH'],
-            config_experiment['NAME'],
-            'log',
-            f'log_fold_{fold_}'
-        )
-
-        if not os.path.exists(log_folder):
-            os.makedirs(log_folder)
-
+        log_folder, plot_folder, model_folder = define_folder_structure(config_experiment, fold_)
+        
         w_0, w_1 = calc_log_loss_weight(
             train.loc[
                 train['fold']==fold_, config_experiment['TARGET_COL']
             ].values
         )
-        config_model[f'pos_weight'] = w_1/w_0
+        config_model['pos_weight'] = w_1/w_0
+        config_model['plot_folder'] = plot_folder
 
         print(f'\n\nStarting fold {fold_}\n\n\n')
         print('\n\nStarting Pretraining\n\n\n')
