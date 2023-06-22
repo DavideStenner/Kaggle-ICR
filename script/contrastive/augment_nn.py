@@ -17,6 +17,11 @@ def get_all_combination_stratified(
             2
         )
     )
+    #shuffle index 
+    list_all_combination = [
+        sample(x, 2) for x in list_all_combination
+    ]
+    
     c_1_simulated = [c_1 for c_1, _ in list_all_combination]
     c_2_simulated = [c_2 for _, c_2 in list_all_combination]
 
@@ -31,10 +36,13 @@ def get_all_combination_stratified(
     sum_unequal, sum_0_0, sum_1_1 = sum(mask_unequal), sum(mask_0_0), sum(mask_1_1)
     equal_agg_num = min(sum_0_0, sum_1_1)
 
-    num_sim_unequal = num_sim_equal = min(sum_unequal, equal_agg_num)
+    num_sim_unequal = min(sum_unequal, equal_agg_num*2)
+    num_sim_equal = min(sum_unequal, equal_agg_num)
+
     num_0_0_equal = min(sum_0_0, num_sim_equal)
     num_1_1_equal = min(sum_1_1, num_sim_equal)
-    
+    num_sim_unequal = (num_0_0_equal + num_1_1_equal)
+
     equal_0_0_index = sample(range(sum_0_0), num_0_0_equal)
     equal_1_1_index = sample(range(sum_1_1), num_1_1_equal)
 

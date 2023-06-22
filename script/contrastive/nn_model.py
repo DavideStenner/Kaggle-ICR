@@ -411,10 +411,31 @@ def contrastive_pipeline(
     c_2_data = data.loc[
         c_2_simulated, col_used
     ].reset_index(drop=True)
+    
+    target_ = get_target_score(
+        original_tgt_label,
+        c_1_data, c_2_data
+    )
+    
+    return [c_1_data, c_2_data], target_
+
+def get_target_score(
+        tgt_label: str,
+        c_1_data: pd.DataFrame, c_2_data: pd.DataFrame
+    ) -> pd.Series:
 
     target_  = (
-        (c_2_data[original_tgt_label] == c_1_data[original_tgt_label])
-    ).astype(int)
+        (c_2_data['Alpha'] == c_1_data['Alpha'])
+    ).astype(float)
+
+    # target_.loc[
+    #     (c_2_data[tgt_label] == c_1_data[tgt_label]) &
+    #     (c_2_data['Alpha'] != c_1_data['Alpha'])
+    # ] = 0.5
+
+    return target_
+
+def get_training_dataset_loader(
 
     return [c_1_data, c_2_data], target_
 
@@ -425,7 +446,7 @@ def run_nn_contrastive_experiment(
     
     train = pd.read_pickle(
         os.path.join(config_experiment['PATH_DATA'], 'processed_data.pkl')
-    )[feature_list + ['fold', target_col]]
+    )[feature_list + ['fold', target_col, 'Alpha']]
 
     train[feature_list] = (train[feature_list]-train[feature_list].mean())/train[feature_list].std()
     train[feature_list] = train[feature_list].fillna(0)

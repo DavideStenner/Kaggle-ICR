@@ -31,7 +31,13 @@ def preprocess_data(config: dict) -> None:
     age_binned = pd.cut(age_, config['N_FOLD'], labels=range(config['N_FOLD'])).astype(str)
     
     #condition + age + sex
-    strat_col = fold_info['Alpha'].astype(str) + '_' + age_binned + '_' + fold_info['EJ']
+    strat_col = (
+        fold_info['Alpha'].astype(str) + '_' + 
+        age_binned + '_' + 
+        # fold_info['EJ'] + '_' + 
+        # fold_info['Beta'] + '_' + 
+        fold_info['Gamma']
+    )
 
     split = StratifiedKFold(n_splits=config['N_FOLD'], shuffle=True, random_state=config['RANDOM_STATE'])
     iterator_split = enumerate(split.split(fold_info, strat_col))
