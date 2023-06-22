@@ -88,7 +88,7 @@ class Normalize(nn.Module):
         return x
 
 class FFLayer(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, output_size, activation):
         super(FFLayer, self).__init__()
 
         self.input_size = input_size
@@ -97,6 +97,7 @@ class FFLayer(nn.Module):
             nn.Linear(self.input_size, self.output_size),
             nn.GELU(),
             nn.BatchNorm1d(self.output_size),
+            activation(),
         )
     def forward(self, x):
         return self.ff_layer(x)
@@ -123,8 +124,11 @@ class ContrastiveClassifier(pl.LightningModule):
         num_features = config['num_features']
 
         self.classification_head = nn.Sequential(
-            nn.Linear(self.embedding_size, 1)
+            FFLayer(self.embedding_size, 100, nn.GELU),
+            FFLayer(100, 100, nn.GELU),
+            nn.Linear(100, 1)
         )
+        
         # self.contrastive_ff = nn.Sequential(
         #     TabnetLayer(
         #         input_dim=num_features,
@@ -137,9 +141,24 @@ class ContrastiveClassifier(pl.LightningModule):
         #     Normalize()
         # )
 
+
+        self.embedding_layer = nn.Sequential(
+            FFLayer(num_features, num_features, nn.GELU),
+            FFLayer(num_features, self.embedding_size, nn.GELU),
+            FFLayer(self.embedding_size, self.embedding_size, nn.GELU),
+        )
+        self.embedding_head = nn.Sequential(
+            nn.Linear(self.embedding_size, self.embedding_size),
+            nn.BatchNorm1d(self.embedding_size),
             Normalize()
         )
-        
+        self.contrastive_ff = nn.Sequential(
+            self.embedding_layer,
+            self.embedding_head
+        )
+
+        self.normalize_input = nn.BatchNorm1d(num_features)
+
         self.step_outputs = {
             'train': [],
             'val': [],
@@ -150,7 +169,7 @@ class ContrastiveClassifier(pl.LightningModule):
     def init_pretraining_setup(self) -> None:
         self.lr = self.config['lr_pretraining']
 
-        self.criterion = ContrastiveLoss()
+        self.criterion = CosineSimilarityLoss()
         self.pretraining: bool = True
 
     def init_classifier_setup(self) -> None:
@@ -402,7 +421,7 @@ def contrastive_pipeline(
     ) -> List[np.array]:
 
     c_1_simulated, c_2_simulated = get_all_combination_stratified(data, original_tgt_label)
-    col_used = feature_list + [original_tgt_label]
+    col_used = feature_list + [original_tgt_label, 'Alpha']
 
     c_1_data = data.loc[
         c_1_simulated, col_used
