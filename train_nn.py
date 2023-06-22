@@ -56,7 +56,8 @@ if __name__ == '__main__':
         'num_features': 56,
         'embedding_size': 512,
         #None -> each fold wil calculate it's weight
-        'pos_weight': None
+        'pos_weight': None,
+        'print_pretraining': True
     }
     feature_list = config_project['ORIGINAL_FEATURE']
     

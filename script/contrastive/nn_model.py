@@ -5,7 +5,9 @@ import json
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import pytorch_lightning as pl
+import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 
@@ -13,6 +15,7 @@ from torch import nn
 from enum import Enum
 from typing import Tuple, List
 from collections import OrderedDict
+from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader, Dataset
 
 from script.tabnet.tab_network import TabNet, TabNetNoEmbeddings
@@ -95,7 +98,6 @@ class FFLayer(nn.Module):
         self.output_size = output_size
         self.ff_layer = nn.Sequential(
             nn.Linear(self.input_size, self.output_size),
-            nn.GELU(),
             nn.BatchNorm1d(self.output_size),
             activation(),
         )
@@ -113,9 +115,10 @@ class TabnetLayer(nn.Module):
         return pred
     
 class ContrastiveClassifier(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config: dict, valid_dataset: DataLoader=None):
         super().__init__()
         
+        self.valid_dataset = valid_dataset
         self.config = config
         self.init_pretraining_setup()
 
@@ -171,6 +174,7 @@ class ContrastiveClassifier(pl.LightningModule):
 
         self.criterion = CosineSimilarityLoss()
         self.pretraining: bool = True
+        self.inference_embedding: bool = False
 
     def init_classifier_setup(self) -> None:
         self.lr = self.config['lr']
@@ -179,6 +183,9 @@ class ContrastiveClassifier(pl.LightningModule):
 
         self.froze_layer()
         self.pretraining: bool = False
+
+    def init_embedding_inference_setup(self) -> None:
+        self.inference_embedding: bool = True
 
     def froze_layer(
             self,
@@ -263,9 +270,13 @@ class ContrastiveClassifier(pl.LightningModule):
             f'step: {self.trainer.global_step}',
             f'{mode}_loss: {loss:.5f}'
         ]
-        if not self.pretraining:
-            #evaluate on all dataset
-            if mode != 'train':
+
+        if mode != 'train':
+            self.pretraining_inspection()
+            
+            if not self.pretraining:
+                #evaluate on all dataset
+
                 preds = [out['pred'] for out in outputs]
                 preds = torch.sigmoid(torch.cat(preds))
                 
@@ -286,8 +297,8 @@ class ContrastiveClassifier(pl.LightningModule):
                         for metric, metric_value in metric_score.items()
                     }
                 )
-            else:
-                pass
+        else:
+            pass
 
         if self.trainer.sanity_checking:
             pass
@@ -302,15 +313,61 @@ class ContrastiveClassifier(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
     
-    def forward(self, inputs):
-        if self.pretraining:
-            sample_1 = self.contrastive_ff(inputs['sample_1'])
-            sample_2 = self.contrastive_ff(inputs['sample_2'])
+    def pretraining_inspection(self):
+        if not self.pretraining:
+            return
+        else:
+            if self.valid_dataset is None:
+                return
+            else:
 
-            embedding = [
-                sample_1, sample_2
-            ]
-            return embedding
+                embeddings = []
+                labels = []
+
+                for input, label in self.valid_dataset:
+                    input_ = input.to('cuda:0')
+
+                    input_ = self.normalize_input(input_)
+                    embedding = self.contrastive_ff(input_).cpu().numpy().tolist()
+                    label = label.numpy().tolist()
+
+                    embeddings += (embedding)
+                    labels += label
+
+                pca_ = PCA(n_components=2)
+                embeddings = pca_.fit_transform(np.array(embeddings))
+
+                results = pd.DataFrame(
+                    {
+                        'pca_1': embeddings[:, 0],
+                        'pca_2': embeddings[:, 1],
+                        'labels': labels
+                    }
+                )
+                sns.scatterplot(data=results, x="pca_1", y="pca_2", hue="labels")
+                plt.show()
+
+
+    def forward(self, inputs):
+        
+        if self.pretraining:
+            if self.inference_embedding:
+                input = self.normalize_input(inputs['sample_1'])
+                embedding = self.contrastive_ff(input)
+                return embedding
+            else:
+                input_1 = self.normalize_input(inputs['sample_1'])
+                input_2 = self.normalize_input(inputs['sample_2'])
+
+                sample_1 = self.contrastive_ff(input_1)
+                sample_2 = self.contrastive_ff(input_2)
+
+                embedding = [
+                    sample_1, sample_2
+                ]
+                return embedding
+            
+        #classification
         else:
             embedding = self.contrastive_ff(inputs)
             output = self.classification_head(embedding)        
@@ -318,10 +375,13 @@ class ContrastiveClassifier(pl.LightningModule):
             return output
     
     def predict_step(self, batch: torch.tensor, batch_idx: int):
-        assert not self.pretraining
-        pred = self.forward(batch)
-        pred = torch.flatten(pred)
-        pred = torch.sigmoid(pred)
+        if self.pretraining:
+            pred = self.forward(batch)
+
+        else:
+            pred = self.forward(batch)
+            pred = torch.flatten(pred)
+            pred = torch.sigmoid(pred)
         
         return pred
 
@@ -455,8 +515,67 @@ def get_target_score(
     return target_
 
 def get_training_dataset_loader(
+        config_model: dict, train: pd.DataFrame, 
+        fold_: int, target_col: str, feature_list: list
+    ):
+    train_dataset_contrastive = get_contrastive_dataset(
+        data=train, fold_=fold_, validation=False, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    valid_dataset_contrastive = get_contrastive_dataset(
+        data=train, fold_=fold_, validation=True, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    
+    train_loader_contrastive = DataLoader(
+        train_dataset_contrastive,
+        batch_size=config_model['batch_size_pretraining'],
+        shuffle=True,
+        pin_memory=True,
+        drop_last=True,
+        num_workers=config_model['num_workers']
+    )
+    
+    valid_loader_contrastive = DataLoader(
+        valid_dataset_contrastive,
+        batch_size=config_model['batch_size_pretraining']*2,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers']
+    )
 
-    return [c_1_data, c_2_data], target_
+    train_dataset = get_dataset(
+        data=train, fold_=fold_, validation=False, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    valid_dataset = get_dataset(
+        data=train, fold_=fold_, validation=True, 
+        target_col=target_col, feature_list=feature_list,
+    )
+
+    train_loader_training = DataLoader(
+        train_dataset,
+        batch_size=config_model['batch_size'],
+        shuffle=True,
+        pin_memory=True,
+        drop_last=True,
+        num_workers=config_model['num_workers']
+    )
+    
+    valid_loader_training = DataLoader(
+        valid_dataset,
+        batch_size=config_model['batch_size']*2,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers']
+    )
+
+    return (
+        train_loader_contrastive, valid_loader_contrastive,
+        train_loader_training, valid_loader_training
+    )
 
 def run_nn_contrastive_experiment(
         config_experiment: dict, config_model: dict, 
@@ -469,6 +588,7 @@ def run_nn_contrastive_experiment(
 
     train[feature_list] = (train[feature_list]-train[feature_list].mean())/train[feature_list].std()
     train[feature_list] = train[feature_list].fillna(0)
+
     for fold_ in range(config_experiment['N_FOLD']):
 
         log_folder = os.path.join(
@@ -481,39 +601,21 @@ def run_nn_contrastive_experiment(
         if not os.path.exists(log_folder):
             os.makedirs(log_folder)
 
-        print(f'\n\nStarting fold {fold_}\n\n\n')
-        print('\n\nStarting Pretraining\n\n\n')
-        train_dataset = get_contrastive_dataset(
-            data=train, fold_=fold_, validation=False, 
-            target_col=target_col, feature_list=feature_list,
-        )
-        valid_dataset = get_contrastive_dataset(
-            data=train, fold_=fold_, validation=True, 
-            target_col=target_col, feature_list=feature_list,
-        )
         w_0, w_1 = calc_log_loss_weight(
             train.loc[
                 train['fold']==fold_, config_experiment['TARGET_COL']
             ].values
         )
         config_model[f'pos_weight'] = w_1/w_0
-        
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=config_model['batch_size_pretraining'],
-            shuffle=True,
-            pin_memory=True,
-            drop_last=True,
-            num_workers=config_model['num_workers']
-        )
-        
-        valid_loader = DataLoader(
-            valid_dataset,
-            batch_size=config_model['batch_size_pretraining']*2,
-            shuffle=False,
-            pin_memory=True,
-            drop_last=False,
-            num_workers=config_model['num_workers']
+
+        print(f'\n\nStarting fold {fold_}\n\n\n')
+        print('\n\nStarting Pretraining\n\n\n')
+        (
+            train_loader_contrastive, valid_loader_contrastive,
+            train_loader_training, valid_loader_training
+        ) = get_training_dataset_loader(
+            config_model=config_model, train=train, 
+            fold_=fold_, target_col=target_col, feature_list=feature_list
         )
 
         loggers_pretraining = pl.loggers.CSVLogger(
@@ -534,38 +636,12 @@ def run_nn_contrastive_experiment(
             enable_checkpointing=False
         )
         
-        model_ = ContrastiveClassifier(config=config_model)
+        print_dataset = valid_loader_training if config_model['print_pretraining'] else None
 
-        contrastive_trainer.fit(model_, train_loader, valid_loader)
+        model_ = ContrastiveClassifier(config=config_model, valid_dataset=print_dataset)
+
+        contrastive_trainer.fit(model_, train_loader_contrastive, valid_loader_contrastive)
         model_.init_classifier_setup()
-
-        
-        train_dataset = get_dataset(
-            data=train, fold_=fold_, validation=False, 
-            target_col=target_col, feature_list=feature_list,
-        )
-        valid_dataset = get_dataset(
-            data=train, fold_=fold_, validation=True, 
-            target_col=target_col, feature_list=feature_list,
-        )
-
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=config_model['batch_size'],
-            shuffle=True,
-            pin_memory=True,
-            drop_last=True,
-            num_workers=config_model['num_workers']
-        )
-        
-        valid_loader = DataLoader(
-            valid_dataset,
-            batch_size=config_model['batch_size']*2,
-            shuffle=False,
-            pin_memory=True,
-            drop_last=False,
-            num_workers=config_model['num_workers']
-        )
 
         loggers_training = pl.loggers.CSVLogger(
             save_dir=log_folder,
@@ -585,7 +661,7 @@ def run_nn_contrastive_experiment(
             enable_checkpointing=False
         )
         print('\n\nStarting training\n\n')
-        classifier_trainer.fit(model_, train_loader, valid_loader)
+        classifier_trainer.fit(model_, train_loader_training, valid_loader_training)
 
 def eval_nn_contrastive_experiment(
     config_experiment: dict, step: str, 
