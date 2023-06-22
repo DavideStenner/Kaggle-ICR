@@ -336,13 +336,14 @@ class ContrastiveClassifier(pl.LightningModule):
                     embeddings += embedding
                     labels += label
 
+                embeddings = np.array(embeddings)
                 pca_ = PCA(n_components=2)
-                embeddings = pca_.fit_transform(np.array(embeddings))
+                embeddings_pca = pca_.fit_transform(embeddings)
 
                 results = pd.DataFrame(
                     {
-                        'pca_1': embeddings[:, 0],
-                        'pca_2': embeddings[:, 1],
+                        'pca_1': embeddings_pca[:, 0],
+                        'pca_2': embeddings_pca[:, 1],
                         'labels': labels
                     }
                 )
@@ -358,13 +359,16 @@ class ContrastiveClassifier(pl.LightningModule):
                     plot
                     plt.show()
 
-                cluster_model = KMedoids(n_clusters=2, metric='euclidean')
-                cluster_model.fit(embeddings)
-                
-                metric_score = adjusted_rand_score(labels, cluster_model.labels_)
-                metric_message_list += [
-                    f'{mode}_adj_rand: {metric_score:.5f}'
-                ]
+                for dataset, name in [(embeddings_pca, 'pca'), (embeddings, 'all')]:
+
+                    cluster_model = KMedoids(n_clusters=2, metric='euclidean')
+                    cluster_model.fit(dataset)
+                    
+                    metric_score = adjusted_rand_score(labels, cluster_model.labels_)
+                    metric_message_list += [
+                        f'{mode}_adj_rand_{name}: {metric_score:.5f}'
+                    ]
+
                 return metric_message_list
 
     def forward(self, inputs):
