@@ -10,7 +10,7 @@ import lightgbm as lgb
 from typing import Tuple, Dict, List
 from sklearn.metrics import roc_auc_score, log_loss
 
-from script.contrastive.augment import fe_new_col_name, get_retrieval_dataset
+from script.contrastive_tree.augment import fe_new_col_name, get_retrieval_dataset
 from script.loss import competition_log_loss
 
 def import_model(config: dict) -> Dict[

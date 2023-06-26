@@ -1,7 +1,7 @@
 import json
 
 from script.utils import set_seed_globally
-from script.contrastive.ensemble import get_retrieval_score
+from script.ensemble.ensemble import get_retrieval_score
 
 if __name__ == '__main__':
     with open('config.json') as config_file:
