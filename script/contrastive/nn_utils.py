@@ -97,6 +97,8 @@ def run_nn_contrastive_experiment(
             num_sanity_val_steps=config_model['num_sanity_val_steps_pretraining'],
             logger=[loggers_pretraining],
             gradient_clip_val=config_model['gradient_clip_val_pretraining'],
+            accumulate_grad_batches=config_model['accumulate_grad_batches_pretraining'],
+            check_val_every_n_epoch=config_model['check_val_every_n_epoch_pretraining'],
             enable_checkpointing=False
         )
         
@@ -123,6 +125,7 @@ def run_nn_contrastive_experiment(
             num_sanity_val_steps=config_model['num_sanity_val_steps'],
             logger=[loggers_training],
             gradient_clip_val=config_model['gradient_clip_val'],
+            accumulate_grad_batches=config_model['accumulate_grad_batches'],
             enable_checkpointing=False
         )
         print('\n\nStarting training\n\n')

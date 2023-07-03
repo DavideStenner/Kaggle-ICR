@@ -66,7 +66,7 @@ class ICRContrastiveDataset(Dataset):
 
             return inputs, label
 
-class ICRContrastiveBySampleDataset(Dataset):
+class ICRContrastiveByAllSampleDataset(Dataset):
     def __init__(self, 
             data: pd.DataFrame, feature_list: list, target_col: str,
             inference: bool, weight: float = 1
@@ -82,13 +82,13 @@ class ICRContrastiveBySampleDataset(Dataset):
         return self.number_rows
 
     def __getitem__(self, item):
-        anchor = torch.tensor(self.feature[item, :], dtype=torch.float).repeat(self.number_rows-1)
+        anchor = torch.tensor(self.feature[item, :], dtype=torch.float).repeat((self.number_rows-1, 1))
         contrast = torch.tensor(np.delete(self.feature, [item], axis=0), dtype=torch.float)
 		
         inputs = {
             'sample_1': anchor,
             'sample_2': contrast,
-            'mask_1_target': torch.ones(self.number_rows-1, dtype=torch.float) * self.weight
+            'original_target': torch.tensor([self.target[item]], dtype=torch.float)
         }
 
         if self.inference:
@@ -101,6 +101,70 @@ class ICRContrastiveBySampleDataset(Dataset):
 
             label = torch.eq(label_anchor, label_contrast).type(torch.float)
             return inputs, label
+
+class ICRContrastiveBySampleDataset(Dataset):
+    def __init__(self, 
+            data: pd.DataFrame, feature_list: list, target_col: str,
+            validation: bool, number_repetition: int = 5, num_sample: int = 10
+        ):
+        self.num_features = len(feature_list)
+        self.feature = data[feature_list].values
+        self.target = data[target_col].values
+        self.number_rows = data.shape[0]
+        self.index = data.index
+        self.validation = validation
+        self.number_repetition = number_repetition
+        self.num_sample = num_sample
+
+    def find_example(
+            self, item: int, num_sample: int, 
+            equal: bool
+        ) -> list:
+        target_confront_sample = self.target[item] if equal else (1-self.target[item])
+        index = np.arange(self.number_rows)
+
+        all_other_index_mask = index != item
+
+        selected_row = index[
+            (all_other_index_mask) &
+            (self.target == target_confront_sample)
+        ]
+        extracted_index = np.random.randint(selected_row.shape[0], size=num_sample)
+        extracted_row = selected_row[extracted_index]
+
+        return extracted_row
+
+    def __len__(self):
+        return self.number_rows*self.number_repetition
+
+    def __getitem__(self, item):
+        item = np.mod(item, self.number_rows)
+
+        curr_target = self.target[item]
+        num_sample = self.num_sample if curr_target == 0 else int(4.71*self.num_sample)
+
+        anchor = torch.tensor(self.feature[item, :], dtype=torch.float).repeat((num_sample*2, 1))
+
+        positive_index = self.find_example(item=item, num_sample=num_sample, equal=True)
+        negative_index = self.find_example(item=item, num_sample=num_sample, equal=False)
+
+        all_index = np.concatenate((positive_index, negative_index), axis=0)
+
+        contrast = torch.tensor(self.feature[all_index], dtype=torch.float)
+
+        inputs = {
+            'sample_1': anchor,
+            'sample_2': contrast,
+            'original_target': torch.tensor([self.target[item]], dtype=torch.float)
+        }
+
+        label_anchor = torch.tensor(self.target[item], dtype=torch.float).repeat(num_sample*2)
+        label_contrast = torch.tensor(
+            self.target[all_index], dtype=torch.float
+        )
+
+        label = torch.eq(label_anchor, label_contrast).type(torch.float)
+        return inputs, label
 
 def get_dataset(
         data: pd.DataFrame, fold_: int, validation: bool,
@@ -125,8 +189,8 @@ def get_hard_contrastive_dataset(
     
     data = data[mask_fold].reset_index(drop=True)
     dataset = ICRContrastiveBySampleDataset(
-        data=data, feature_list=feature_list, target_col=target_col, 
-        inference=False
+        data=data, feature_list=feature_list, target_col=target_col,
+        validation=validation
     )
     return dataset
 
@@ -199,6 +263,23 @@ def get_target_score(
 
     return target_, mask_1_target
 
+def custom_collate(batch):
+    for i, (feature, label) in enumerate(batch):
+        if i == 0:
+            feature_collate = {
+                key: value
+                for key, value in feature.items()
+            }
+            label_collate = label
+        else:
+            for key in feature.keys():
+                feature_collate[key] = torch.cat(
+                    (feature_collate[key], feature[key])
+                )
+
+            label_collate = torch.cat((label_collate, label))
+    return feature_collate, label_collate
+
 def get_training_dataset_loader(
         config_model: dict, train: pd.DataFrame, 
         fold_: int, target_col: str, feature_list: list, batch_size: int
@@ -206,12 +287,10 @@ def get_training_dataset_loader(
     train_dataset_contrastive = get_hard_contrastive_dataset(
         data=train, fold_=fold_, validation=False, 
         target_col=target_col, feature_list=feature_list,
-        # batch_size=batch_size
     )
     valid_dataset_contrastive = get_hard_contrastive_dataset(
         data=train, fold_=fold_, validation=True, 
         target_col=target_col, feature_list=feature_list,
-        # batch_size=batch_size
     )
     
     train_loader_contrastive = DataLoader(
@@ -220,16 +299,18 @@ def get_training_dataset_loader(
         shuffle=True,
         pin_memory=True,
         drop_last=True,
-        num_workers=config_model['num_workers']
+        num_workers=config_model['num_workers'],
+        collate_fn=custom_collate
     )
     
     valid_loader_contrastive = DataLoader(
         valid_dataset_contrastive,
-        batch_size=config_model['batch_size_pretraining']*2,
+        batch_size=config_model['batch_size_pretraining'],
         shuffle=False,
         pin_memory=True,
         drop_last=False,
-        num_workers=config_model['num_workers']
+        num_workers=config_model['num_workers'],
+        collate_fn=custom_collate
     )
 
     train_dataset = get_dataset(

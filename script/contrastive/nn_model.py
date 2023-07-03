@@ -13,13 +13,13 @@ from torch import nn
 from typing import Tuple, Dict
 from sklearn.decomposition import PCA
 from sklearn_extra.cluster import KMedoids
-from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score, f1_score
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from script.loss import competition_log_loss
 from script.tabnet.tab_network import TabNetNoEmbeddings
-from script.contrastive.nn_loss import HardCosineSimilarityLoss
+from script.contrastive.nn_loss import HardCosineSimilarityLoss, CosineSimilarityLoss, ContrastiveLoss
 
 class Normalize(nn.Module):
     def __init__(self):
@@ -37,7 +37,7 @@ class FFLayer(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.ff_layer = nn.Sequential(
-            nn.Linear(self.input_size, self.output_size),
+            nn.Linear(self.input_size, self.output_size, bias=False),
             nn.BatchNorm1d(self.output_size),
             activation(),
         )
@@ -53,7 +53,7 @@ class TabnetLayer(nn.Module):
     def forward(self, x):
         pred, _ = self.tabnet(x)
         return pred
-    
+
 class ContrastiveClassifier(pl.LightningModule):
     def __init__(self, config: dict, valid_dataset: DataLoader=None):
         super().__init__()
@@ -63,16 +63,31 @@ class ContrastiveClassifier(pl.LightningModule):
 
         self.embedding_size = config['embedding_size']
         self.pos_weight = None if config['pos_weight'] is None else torch.FloatTensor([config['pos_weight']])
-        num_features = config['num_features']
+        self.num_features = config['num_features']
         self.init_pretraining_setup()
 
+        self.embedding_ff = FFLayer(self.embedding_size, 50, nn.GELU)
+        self.feature_ff = nn.Sequential(
+            FFLayer(self.num_features, 50, nn.GELU),
+            FFLayer(50, 50, nn.GELU)
+            # TabnetLayer(
+            #     input_dim=num_features,
+            #     output_dim=50,
+            #     n_a=16,
+            #     n_d=16,
+            #     virtual_batch_size=8,
+            #     group_attention_matrix=None
+            # ),
+            # nn.BatchNorm1d(50),
+            # nn.GELU()
+        )
+
         self.classification_head = nn.Sequential(
-            FFLayer(self.embedding_size, 100, nn.GELU),
-            FFLayer(100, 100, nn.GELU),
-            nn.Linear(100, 1),
+            FFLayer(100, 50, nn.GELU),
+            nn.Linear(50, 1),
         )
         
-        # self.contrastive_ff = nn.Sequential(
+        # self.embedding_layer = nn.Sequential(
         #     TabnetLayer(
         #         input_dim=num_features,
         #         output_dim=self.embedding_size,
@@ -87,49 +102,35 @@ class ContrastiveClassifier(pl.LightningModule):
 
 
         self.embedding_layer = nn.Sequential(
-            FFLayer(num_features, num_features, nn.GELU),
-            FFLayer(num_features, self.embedding_size, nn.GELU),
+            FFLayer(self.num_features, self.num_features, nn.GELU),
+            FFLayer(self.num_features, self.embedding_size, nn.GELU),
             FFLayer(self.embedding_size, self.embedding_size, nn.GELU),
         )
         self.embedding_head = nn.Sequential(
-            nn.Linear(self.embedding_size, self.embedding_size),
+            nn.Linear(self.embedding_size, self.embedding_size, bias=False),
             nn.BatchNorm1d(self.embedding_size),
-            Normalize()
         )
+
         self.contrastive_ff = nn.Sequential(
             self.embedding_layer,
-            self.embedding_head
+            self.embedding_head,
+            Normalize()
         )
-
-
+        self.get_embedding = nn.Sequential(
+            self.embedding_layer,
+            self.embedding_head,
+        )
         self.step_outputs = {
             'train': [],
             'val': [],
             'test': []
         }
         self.save_hyperparameters()
-        # self.init_weight_()
-
-    def init_weight_(self) -> None:
-        def weights_init(layer):
-            if isinstance(layer, nn.Linear):
-                torch.nn.init.xavier_normal_(layer.weight)
-                torch.nn.init.zeros_(layer.bias)
-
-        def embedding_init(layer):
-            import math
-
-            if isinstance(layer, nn.Linear):
-                torch.nn.init.constant_(layer.weight, val=1/math.sqrt(layer.weight.shape[0]))
-
-        # self.contrastive_ff.apply(weights_init)
-        # self.embedding_layer.apply(weights_init)
-        self.embedding_head.apply(embedding_init)
 
     def init_pretraining_setup(self) -> None:
         self.lr = self.config['lr_pretraining']
 
-        self.criterion = HardCosineSimilarityLoss()
+        self.criterion = ContrastiveLoss()
         self.pretraining: bool = True
         self.inference_embedding: bool = False
 
@@ -150,7 +151,14 @@ class ContrastiveClassifier(pl.LightningModule):
 
         for _, param in self.contrastive_ff.named_parameters():
             param.requires_grad = False
+
+    def unfreeze_layer(
+            self,
+    ) -> None:
         
+        for _, param in self.contrastive_ff.named_parameters():
+            param.requires_grad = True
+
     def __classifier_metric_step(self, pred: torch.tensor, labels: torch.tensor) -> dict:
         #can't calculate auc on a single batch.
         if self.trainer.sanity_checking:
@@ -207,6 +215,9 @@ class ContrastiveClassifier(pl.LightningModule):
 
     def on_training_epoch_end(self):
         self.__share_eval_res('train')
+        
+        # if (not self.pretraining) & (self.current_epoch == 1):
+        #     self.unfreeze_layer()
         
     def on_validation_epoch_end(self):
         self.__share_eval_res('val')
@@ -279,6 +290,26 @@ class ContrastiveClassifier(pl.LightningModule):
         # )
         return optimizer
     
+    def euclidean_distance(self, v1, v2):
+        return np.sqrt(np.sum((v1 - v2) ** 2)) 
+
+    def manhattan_distance(self, v1, v2):
+        return np.sum(np.abs(v1 - v2))
+    
+    def get_nearest(self, center_label: np.array, embeddings: np.array):
+        label_ = [
+            np.argmin(
+                [
+                    self.manhattan_distance(
+                        embeddings[row, :], center_label[lab, :]
+                    )
+                    for lab in range(center_label.shape[0])
+                ]
+            )
+            for row in range(embeddings.shape[0])
+        ]
+        return label_            
+
     def pretraining_inspection(self, metric_message_list:list, mode: str):
         if not self.pretraining:
             return metric_message_list
@@ -292,7 +323,6 @@ class ContrastiveClassifier(pl.LightningModule):
                 labels = []
 
                 for input_, label in self.valid_dataset:
-
                     if torch.cuda.is_available():
                         input_ = input_.to('cuda:0')
 
@@ -303,6 +333,8 @@ class ContrastiveClassifier(pl.LightningModule):
                     labels += label
 
                 embeddings = np.array(embeddings)
+                labels = np.array(labels)
+                
                 pca_ = PCA(n_components=2)
                 embeddings_pca = pca_.fit_transform(embeddings)
 
@@ -313,31 +345,47 @@ class ContrastiveClassifier(pl.LightningModule):
                         'labels': labels
                     }
                 )
-                plot = sns.scatterplot(data=results, x="pca_1", y="pca_2", hue="labels").get_figure()
-                plot.savefig(
-                    os.path.join(
-                        self.config['plot_folder'],
-                        f'{self.trainer.global_step}_cluster.png'
-                    )
-                )
-
-                if self.config['show_plot']:
-                    plot
-                    plt.show()
-
-                plt.close(plot)
-
                 for dataset, name in [(embeddings_pca, 'pca'), (embeddings, 'all')]:
+                    center_label = np.stack(
+                        [
+                            np.median(dataset[labels==x, :], axis=0)
+                            for x in range(2)
+                        ]
+                    )
+                    if name == 'pca':
+                        center_label_pca = center_label
+                        
+                    label_ = self.get_nearest(center_label, dataset)
                     
-                    cluster_model = KMedoids(n_clusters=2, metric='euclidean')
-
-                    with warnings.catch_warnings():
-                        cluster_model.fit(dataset)
-                    
-                    metric_score = adjusted_rand_score(labels, cluster_model.labels_)
+                    metric_score = adjusted_rand_score(labels, label_)
                     metric_message_list.append(
                         f'{mode}_adj_rand_{name}: {metric_score:.5f}'
                     )
+                    f1_metric_score = f1_score(labels, label_)
+                    metric_message_list.append(
+                        f'{mode}_f1_{name}: {f1_metric_score:.5f}'
+                    )
+
+                if self.config['print_pretraining']:
+                    plot = sns.scatterplot(data=results, x="pca_1", y="pca_2", hue="labels").get_figure()
+
+                    for label_center, center in enumerate(center_label_pca):
+                        plt.scatter(
+                            center[0], center[1], marker="D", s=20, color="red"
+                        )
+
+                    plot.savefig(
+                        os.path.join(
+                            self.config['plot_folder'],
+                            f'{self.trainer.global_step}_cluster.png'
+                        )
+                    )
+
+                    if self.config['show_plot']:
+                        plot
+                        plt.show()
+                    plt.close(plot)
+
 
                 self.train()
 
@@ -357,14 +405,21 @@ class ContrastiveClassifier(pl.LightningModule):
                 embedding = {
                     'sample_1': sample_1,
                     'sample_2': sample_2,
-                    'mask_1_target': inputs['mask_1_target']
+                    'original_target': inputs['original_target']
                 }
                 return embedding
             
         #classification
         else:
-            embedding = self.contrastive_ff(inputs)
-            output = self.classification_head(embedding)        
+
+            embedding = self.get_embedding(inputs)
+            embedding = self.embedding_ff(embedding)
+        
+            feature = self.feature_ff(inputs)
+
+            all_feature = torch.concat((embedding, feature),dim=-1)
+
+            output = self.classification_head(all_feature)        
             output = torch.flatten(output)
             return output
     

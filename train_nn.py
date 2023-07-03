@@ -3,7 +3,7 @@ import json
 import torch
 
 from script.utils import set_seed_globally
-from script.contrastive.nn_model import (
+from script.contrastive.nn_utils import (
     run_nn_contrastive_experiment, eval_nn_contrastive_experiment
 )
 
@@ -39,14 +39,21 @@ if __name__ == '__main__':
         'n_fold': 5,
         'random_state': config_project['RANDOM_STATE'],
         'max_epochs_pretraining': 10,
-        'max_epochs': 10,
+        'max_epochs': 100,
         #number of step. disable with -1.
         'max_steps': -1,
         #trainer parameter --> check loss every n step. put 0.95 to disable this.
         'val_check_interval_pretraining': 0.95,
+        #set 1 for intra epoch validation
+        'check_val_every_n_epoch_pretraining': 1,
         'val_check_interval': 0.95,
         'num_sanity_val_steps_pretraining': 0,
         'num_sanity_val_steps': 0, 
+        #default to 1
+        'accumulate_grad_batches_pretraining': 1,
+        'accumulate_grad_batches': 1,
+        'gradient_clip_val_pretraining': 1.,
+        'gradient_clip_val': 1.,
         'accelerator': "gpu" if torch.cuda.is_available() else "cpu",
         'lr_pretraining': 1e-3,
         'lr': 1e-3,
@@ -54,7 +61,7 @@ if __name__ == '__main__':
         'version_experiment': 'contrastive-benchmark',
         'progress_bar': False,
         'num_features': 56,
-        'embedding_size': 512,
+        'embedding_size': 64,
         #None -> each fold wil calculate it's weight
         'pos_weight': None,
         'print_pretraining': True,
