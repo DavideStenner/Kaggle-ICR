@@ -9,7 +9,7 @@ def lgb_metric(y_pred, y_true):
     y_true = y_true.get_label()
     return 'balanced_log_loss', competition_log_loss(y_true, y_pred), False
 
-def competition_log_loss(y_true, y_pred):    
+def competition_log_loss(y_true, y_pred, return_all: bool = False):    
     #  _ _ _ The competition log loss - class weighted _ _ _
     # The Equation on the Evaluation page is the competition log loss
     # provided w_0=1 and w_1=1.
@@ -34,4 +34,7 @@ def competition_log_loss(y_true, y_pred):
     log_loss_0 = -np.sum((1 - y_true) * np.log(p_0)) / N_0
     log_loss_1 = -np.sum(y_true * np.log(p_1)) / N_1
     # return the (not further weighted) average of the averages
-    return (log_loss_0 + log_loss_1)/2
+    if return_all:
+        return (log_loss_0 + log_loss_1)/2, log_loss_0, log_loss_1
+    else:
+        return (log_loss_0 + log_loss_1)/2
