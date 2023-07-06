@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from torch import nn
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional
 from sklearn.decomposition import PCA
 from sklearn_extra.cluster import KMedoids
-from sklearn.metrics import adjusted_rand_score, f1_score
+from sklearn.metrics import adjusted_rand_score, f1_score, log_loss
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
@@ -70,16 +70,6 @@ class ContrastiveClassifier(pl.LightningModule):
         self.feature_ff = nn.Sequential(
             FFLayer(self.num_features, 50, nn.GELU),
             FFLayer(50, 50, nn.GELU)
-            # TabnetLayer(
-            #     input_dim=num_features,
-            #     output_dim=50,
-            #     n_a=16,
-            #     n_d=16,
-            #     virtual_batch_size=8,
-            #     group_attention_matrix=None
-            # ),
-            # nn.BatchNorm1d(50),
-            # nn.GELU()
         )
 
         self.classification_head = nn.Sequential(
@@ -87,20 +77,6 @@ class ContrastiveClassifier(pl.LightningModule):
             nn.Linear(50, 1),
         )
         
-        # self.embedding_layer = nn.Sequential(
-        #     TabnetLayer(
-        #         input_dim=num_features,
-        #         output_dim=self.embedding_size,
-        #         n_a=64,
-        #         n_d=64,
-        #         virtual_batch_size=16,
-        #         group_attention_matrix=None
-        #     ),
-        #     nn.BatchNorm1d(self.embedding_size),
-        #     Normalize()
-        # )
-
-
         self.embedding_layer = nn.Sequential(
             FFLayer(self.num_features, self.num_features, nn.GELU),
             FFLayer(self.num_features, self.embedding_size, nn.GELU),
@@ -433,3 +409,411 @@ class ContrastiveClassifier(pl.LightningModule):
             pred = torch.sigmoid(pred)
         
         return pred
+
+
+    
+
+class BinaryConstrastiveHead(nn.Module):
+    """
+    This loss was used in our SBERT publication (https://arxiv.org/abs/1908.10084) to train the SentenceTransformer
+    model on NLI data. It adds a softmax classifier on top of the output of two transformer networks.
+
+    :param concatenation_sent_rep: Concatenate vectors u,v for the softmax classifier?
+    :param concatenation_sent_difference: Add abs(u-v) for the softmax classifier?
+    :param concatenation_sent_multiplication: Add u*v for the softmax classifier?
+    :param loss_fct: Optional: Custom pytorch loss function. If not set, uses nn.CrossEntropyLoss()
+
+    """
+    def __init__(self,
+            embedding_dimension: int,
+            concatenation_sent_rep: bool = True,
+            concatenation_sent_difference: bool = True,
+            concatenation_sent_multiplication: bool = True
+        ):
+        super(BinaryConstrastiveHead, self).__init__()
+        self.concatenation_sent_rep = concatenation_sent_rep
+        self.concatenation_sent_difference = concatenation_sent_difference
+        self.concatenation_sent_multiplication = concatenation_sent_multiplication
+
+        num_vectors_concatenated = 0
+        if concatenation_sent_rep:
+            num_vectors_concatenated += 2
+        if concatenation_sent_difference:
+            num_vectors_concatenated += 1
+        if concatenation_sent_multiplication:
+            num_vectors_concatenated += 1
+
+        self.classifier = nn.Linear(num_vectors_concatenated * embedding_dimension, 1)
+
+    def forward(self, embedding_1, embedding_2):
+
+        vectors_concat = []
+        if self.concatenation_sent_rep:
+            vectors_concat.append(embedding_1)
+            vectors_concat.append(embedding_2)
+
+        if self.concatenation_sent_difference:
+            vectors_concat.append(torch.abs(embedding_1 - embedding_2))
+
+        if self.concatenation_sent_multiplication:
+            vectors_concat.append(embedding_1 * embedding_2)
+
+        features = torch.cat(vectors_concat, 1)
+
+        output = self.classifier(features)
+        output = torch.flatten(output)
+
+        return output
+
+
+class ContrastiveClassifierProb(pl.LightningModule):
+        def __init__(self, config: dict, train_dataset: DataLoader, valid_dataset: DataLoader):
+            super().__init__()
+            
+            self.valid_dataset = valid_dataset
+            self.train_dataset = train_dataset
+            self.config = config
+
+            self.embedding_size = config['embedding_size']
+            self.num_features = config['num_features']
+            self.init_pretraining_setup()
+            
+            self.embedding_layer = nn.Sequential(
+                FFLayer(self.num_features, self.num_features, nn.GELU),
+                FFLayer(self.num_features, self.embedding_size, nn.GELU),
+                FFLayer(self.embedding_size, self.embedding_size, nn.GELU),
+            )
+            self.embedding_head = nn.Sequential(
+                nn.Linear(self.embedding_size, self.embedding_size, bias=False),
+                nn.BatchNorm1d(self.embedding_size),
+            )
+
+            self.contrastive_ff = nn.Sequential(
+                self.embedding_layer,
+                self.embedding_head,
+                Normalize()
+            )
+            self.binary_head_contrastive = BinaryConstrastiveHead(embedding_dimension=self.embedding_size)
+
+            self.step_outputs = {
+                'train': [],
+                'val': [],
+                'test': []
+            }
+            self.save_hyperparameters()
+        
+        def init_pretraining_setup(self) -> None:
+            self.lr = self.config['lr_pretraining']
+            self.weight = 4.17
+            self.weight_tensor = torch.tensor([self.weight-1], dtype=torch.float)
+
+            if torch.cuda.is_available():
+                self.weight_tensor = torch.tensor([self.weight-1], dtype=torch.float).to('cuda')
+
+            self.criterion = nn.BCEWithLogitsLoss(reduction='none')
+            self.comp_loss = competition_log_loss
+
+        def __loss_step(self, 
+                pred: torch.tensor | Dict, labels: torch.tensor,
+                inputs: torch.tensor | Dict,
+            ) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
+            loss = self.criterion(pred, labels)
+            rescale_weight = ((inputs['original_target_flattened'] * self.weight_tensor) + 1)
+            loss = (loss * rescale_weight).mean()
+
+            return loss, pred, labels
+        
+        def training_step(self, batch, batch_idx):
+            input_, labels = batch
+
+            pred = self.forward(input_)
+
+            loss, _, _ = self.__loss_step(pred, labels, input_)
+            self.step_outputs['train'].append(
+                {'loss': loss}
+            )
+
+            return loss
+
+        def validation_step(self, batch, batch_idx):
+
+            input_, labels = batch
+            pred = self.forward(input_)
+
+            loss, pred, labels = self.__loss_step(pred, labels, input_)
+            self.step_outputs['val'].append(
+                {'loss': loss, 'pred': pred, 'labels': labels}
+            )
+            
+        def test_step(self, batch, batch_idx):
+            input_, labels = batch
+            pred = self.forward(input_)
+
+            loss, pred, labels = self.__loss_step(pred, labels, input_)
+            self.step_outputs['test'].append(
+                {'loss': loss, 'pred': pred, 'labels': labels}
+            )
+
+        def on_training_epoch_end(self):
+            self.__share_eval_res('train')
+                        
+        def on_validation_epoch_end(self):
+            self.__share_eval_res('val')
+
+        def on_test_epoch_end(self):
+            self.__share_eval_res('test')
+        
+        def __share_eval_res(self, mode: str):
+            outputs = self.step_outputs[mode]
+            loss = [out['loss'].reshape(1) for out in outputs]
+            loss = torch.mean(torch.cat(loss))
+            
+            #initialize performance output
+            res_dict = {
+                f'{mode}_loss': loss
+            }
+            metric_message_list = [
+                f'step: {self.trainer.global_step}',
+                f'{mode}_loss: {loss:.5f}'
+            ]
+            if self.trainer.sanity_checking:
+                pass
+            else:
+                if mode != 'train':
+                    metric_score, df_metric = self.retrieval_training_inspection()
+                    
+                    #calculate every metric on all batch
+                    metric_message_list += [
+                        f'{mode}_{metric}: {metric_value:.5f}'
+                        for metric, metric_value in metric_score.items()
+                    ]
+                    #get results
+                    res_dict.update(
+                        {
+                            f'{mode}_{metric}': metric_value
+                            for metric, metric_value in metric_score.items()
+                        }
+                    )
+                    print(f'step: {self.trainer.global_step}, {mode}_loss: {loss:.5f}\n')
+                    print(df_metric.to_markdown())
+
+                    self.log_dict(res_dict)
+                else:
+                    pass
+                
+            #free memory
+            self.step_outputs[mode].clear()
+        
+        def configure_optimizers(self):
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+            return optimizer
+
+        def contrastive_train_prediction(self, 
+                train_loader: DataLoader, valid_loader: DataLoader,
+                inference: bool = False
+            ):
+            """method used to create vector of prediction between train and valid loader. 
+            Final prediction with top-k is done on retrieval_top_k_prediction
+
+            Args:
+                train_loader (DataLoader): 
+                valid_loader (DataLoader): 
+                inference (bool, optional):Defaults to False.
+            """
+            self.eval()
+
+            train_embedding = []
+            valid_embeddings = []
+
+            train_labels = []
+            valid_labels = []
+
+            if inference:
+                if torch.cuda.is_available():
+                    self.contrastive_ff = self.contrastive_ff.to('cuda:0')
+                    self.binary_head_contrastive = self.binary_head_contrastive.to('cuda:0')
+
+            for input_train, label_train in train_loader:
+                if torch.cuda.is_available():
+                    input_train = input_train.to('cuda:0')
+                    label_train = label_train.to('cuda:0')
+                    
+                train_labels.append(label_train)    
+                train_embedding.append(self.contrastive_ff(input_train))
+
+            for input_validation in valid_loader:
+                if not inference:
+                    input_validation, label_validation =  input_validation
+
+                    valid_labels.append(label_validation)
+                    
+                if torch.cuda.is_available():
+                    input_validation = input_validation.to('cuda:0')
+
+                valid_embeddings.append(self.contrastive_ff(input_validation))
+
+            train_labels, train_embedding = torch.concat(train_labels), torch.concat(train_embedding)
+
+            valid_embeddings = torch.concat(valid_embeddings)
+
+            size_train = train_embedding.shape[0]
+            
+            pred_list = []
+            for valid_item in range(valid_embeddings.shape[0]):
+                valid_chunk = valid_embeddings[valid_item, :].repeat(size_train, 1)
+
+                pred_ = torch.sigmoid(self.binary_head_contrastive(train_embedding, valid_chunk))
+                
+                pred_list.append(pred_)
+
+            if inference:
+                return pred_list, train_labels
+            else:
+                valid_labels = torch.concat(valid_labels)
+                return pred_list, train_labels, valid_labels
+
+        def retrieval_top_k_prediction(self,
+            train_loader: DataLoader, valid_loader: DataLoader, top_k: int,
+            inference: bool = False
+        ):
+            """method to calculate top-k prediction. used during inference. Single pipeline which apply contrastive prediction and top-k retrieval.
+
+            Args:
+                train_loader (DataLoader): 
+                valid_loader (DataLoader): 
+                top_k (int): _description_
+                inference (bool, optional): Defaults to False.
+            """
+            if inference:
+                pred_list, train_labels = self.contrastive_train_prediction(train_loader, valid_loader, inference)
+            else:
+                pred_list, train_labels, valid_labels = self.contrastive_train_prediction(train_loader, valid_loader, inference)
+            
+            pred_array = self.retrieval_top_k_ensemble(pred_list, train_labels, top_k)
+
+            if inference:
+                return pred_array.detach()
+            else:
+                return pred_array, valid_labels
+        
+        def retrieval_top_k_ensemble(self,
+            pred_list: list, train_labels: list, top_k: int
+        ):
+            """method to apply ensemble on top k prediction
+
+            Args:
+                pred_list (list):
+                train_labels (list): 
+                top_k (int): 
+            """
+            pred_array = []
+
+            for pred_ in pred_list:
+                top_k_pred = self.get_top_k(pred_, train_labels, top_k)
+                pred_array.append(top_k_pred)
+
+            pred_array = torch.concat(pred_array)
+            return pred_array
+        
+        def get_top_k(self, pred_: torch.tensor, train_labels: torch.tensor, top_k: int) -> torch.tensor:
+            """calculate top k given a vector
+
+            Args:
+                pred_ (torch.tensor):
+                train_labels (torch.tensor):
+                top_k (int):
+
+            Returns:
+                torch.tensor
+            """
+
+            # #find top_k for labels==0 and ==1. find the highest one and output this one (reversed if it' 0 --> 0: 1-prob; 1: prob)
+            # top_k_pred_0, _ = torch.sort(pred_[train_labels == 0], descending=True)
+            # top_k_pred_1, _ = torch.sort(pred_[train_labels == 1], descending=True)
+
+            # top_k_pred_0, top_k_pred_1 = top_k_pred_0[:top_k].mean(), top_k_pred_1[:top_k].mean()
+
+            # #reverse prediction if label is 0
+            # top_k_pred = (1-top_k_pred_0) if (top_k_pred_0 > top_k_pred_1) else top_k_pred_1
+
+            #find top_k for labels==0 and ==1. find the highest one and output this one (reversed if it' 0 --> 0: 1-prob; 1: prob)
+            # top_k_pred_0, _ = torch.sort(pred_[train_labels == 0], descending=True)
+            # top_k_pred_1, _ = torch.sort(pred_[train_labels == 1], descending=True)
+
+            # top_k_pred_0, top_k_pred_1 = top_k_pred_0[:top_k].mean(), top_k_pred_1[:top_k].mean()
+            ordered_pred, ordered_index = torch.sort(pred_, descending=True)
+            
+            top_k_pred = ordered_pred[:top_k]
+            top_k_labels = train_labels[ordered_index[:top_k]]
+            
+            pred_ =  (1-top_k_pred) * (1- top_k_labels) + top_k_pred * top_k_labels
+            pred_ = pred_.mean().reshape(1)
+            # pred_ =  (1-pred_) * (1- train_labels) + pred_ * train_labels
+            # top_k_pred, _ = torch.sort(pred_, descending=True)
+
+            # #class 1 benefit from top_k. class 0 no
+            # if top_k_pred_1 > top_k_pred_0:
+
+            # top_k_pred = top_k_pred[-top_k:]
+
+            # top_k_pred = top_k_pred.mean().reshape(1)
+            return pred_
+        
+        def retrieval_training_inspection(self, top_k_list: list = [1, 5, 10, 15, 20, 50, 100, 200, 1000]):
+            metric_dict = {}
+            df_metric = []
+            
+            #calculate one time embedding to speed up
+            pred_list, train_labels, label_validation = self.contrastive_train_prediction(self.train_dataset, self.valid_dataset)
+            
+            label_validation = label_validation.numpy()
+
+            for top_k in top_k_list:
+                pred_array = self.retrieval_top_k_ensemble(pred_list, train_labels, top_k)
+
+                pred_array = (
+                    pred_array.numpy() if self.config['accelerator'] == 'cpu'
+                    else pred_array.cpu().numpy()
+                )
+                
+                metric_score, metric_score_0, metric_score_1 = self.comp_loss(label_validation, pred_array, True)
+                binary_ce = log_loss(label_validation, pred_array)
+
+                result_df = pd.DataFrame(
+                    {
+                        'top_k': [top_k],
+                        'comp_loss': [metric_score],
+                        'binary_ce_0': [metric_score_0],
+                        'binary_ce_1': [metric_score_1],
+                        'binary_ce': [binary_ce]
+                    }
+                )
+
+                df_metric.append(result_df)
+
+                metric_dict.update(
+                    {
+                        f'comp_loss_{top_k}': metric_score,
+                        f'binary_ce_0_{top_k}': metric_score_0,
+                        f'binary_ce_1_{top_k}': metric_score_1,
+                        f'binary_ce_{top_k}': binary_ce
+                    }
+                )
+
+            df_metric = pd.concat(df_metric, axis=0, ignore_index=True)
+
+            self.train()
+
+            return metric_dict, df_metric
+
+        def forward(self, inputs):
+            sample_1 = self.contrastive_ff(inputs['sample_1'])
+            sample_2 = self.contrastive_ff(inputs['sample_2'])
+            output = self.binary_head_contrastive(sample_1, sample_2)
+            return output
+        
+        def predict_step(self, batch: torch.tensor, batch_idx: int):
+            pred = self.contrastive_ff(batch)
+            pred = torch.sigmoid(pred)
+            
+            return pred
