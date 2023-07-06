@@ -5,8 +5,8 @@ import glob
 import pandas as pd
 import pytorch_lightning as pl
 
-from script.contrastive.nn_model import ContrastiveClassifier
-from script.loss import calc_log_loss_weight
+from script.contrastive.nn_model import ContrastiveClassifier, ContrastiveClassifierProb
+from script.loss import calc_log_loss_weight, competition_log_loss
 from script.contrastive.nn_dataset import get_training_dataset_loader
 
 def define_folder_structure(config_experiment: dict, fold_: int):
@@ -74,7 +74,7 @@ def run_nn_contrastive_experiment(
         print('\n\nStarting Pretraining\n\n\n')
         (
             train_loader_contrastive, valid_loader_contrastive,
-            train_loader_training, valid_loader_training
+            train_loader_training, valid_loader_training, valid_loader_inference
         ) = get_training_dataset_loader(
             config_model=config_model, train=train, 
             fold_=fold_, target_col=target_col, feature_list=feature_list,
@@ -130,6 +130,81 @@ def run_nn_contrastive_experiment(
         )
         print('\n\nStarting training\n\n')
         classifier_trainer.fit(model_, train_loader_training, valid_loader_training)
+
+def run_nn_contrastive_prob_experiment(
+        config_experiment: dict, config_model: dict, 
+        feature_list: list, target_col: str,
+    ) -> None:
+    
+    train = pd.read_pickle(
+        os.path.join(config_experiment['PATH_DATA'], 'processed_data.pkl')
+    )[feature_list + ['fold', target_col, 'Alpha']]
+
+    train[feature_list] = train[feature_list].fillna(train[feature_list].min()-1)
+    train[feature_list] = (train[feature_list]-train[feature_list].mean())/train[feature_list].std()
+    train['prob_'] = -1
+
+    for fold_ in range(config_experiment['N_FOLD']):
+
+        log_folder, plot_folder, model_folder = define_folder_structure(config_experiment, fold_)
+        
+        print(f'\n\nStarting fold {fold_}\n\n\n')
+        print('\n\nStarting Pretraining\n\n\n')
+        (
+            train_loader_contrastive, valid_loader_contrastive,
+            train_loader_training, valid_loader_training,
+            valid_loader_inference
+        ) = get_training_dataset_loader(
+            config_model=config_model, train=train, 
+            fold_=fold_, target_col=target_col, feature_list=feature_list,
+            batch_size=config_model['batch_size_pretraining']
+        )
+
+        loggers_pretraining = pl.loggers.CSVLogger(
+            save_dir=log_folder,
+            name='pretraining',
+            version=config_model['version_experiment']
+        )
+
+        contrastive_trainer = pl.Trainer(
+            max_epochs=config_model['max_epochs_pretraining'],
+            max_steps=config_model['max_steps'],
+            fast_dev_run=config_model['dev_run'], 
+            accelerator=config_model['accelerator'],
+            val_check_interval=config_model['val_check_interval_pretraining'],
+            enable_progress_bar=(config_model['debug_run']) | (config_model['progress_bar']),
+            num_sanity_val_steps=config_model['num_sanity_val_steps_pretraining'],
+            logger=[loggers_pretraining],
+            gradient_clip_val=config_model['gradient_clip_val_pretraining'],
+            accumulate_grad_batches=config_model['accumulate_grad_batches_pretraining'],
+            check_val_every_n_epoch=config_model['check_val_every_n_epoch_pretraining'],
+            enable_checkpointing=False
+        )
+        
+        model_ = ContrastiveClassifierProb(
+            config=config_model, 
+            train_dataset=train_loader_training, valid_dataset=valid_loader_training
+        )
+
+        contrastive_trainer.fit(model_, train_loader_contrastive, valid_loader_contrastive)
+        
+        prob_ = model_.retrieval_prediction(
+            train_loader=train_loader_training, valid_loader=valid_loader_inference,
+            inference=True
+        )
+
+        prob_ = (
+            prob_.numpy() if config_model['accelerator'] == 'cpu'
+            else prob_.cpu().numpy()
+        )
+        train.loc[train['fold']==fold_, 'prob_'] = prob_
+
+    train.to_pickle(
+        os.path.join(
+            config_experiment['SAVE_RESULTS_PATH'],
+            config_experiment['NAME'], "oof_predict.pkl"
+        )
+    )
 
 def eval_nn_contrastive_experiment(
     config_experiment: dict, step: str, 
@@ -188,3 +263,28 @@ def eval_nn_contrastive_experiment(
             ), 'w'
         ) as file:
             json.dump(best_score, file)
+
+    
+def eval_nn_contrastive_oof_score(
+    config_experiment: dict
+) -> None:
+    save_path = os.path.join(
+        config_experiment['SAVE_RESULTS_PATH'],
+        config_experiment['NAME']
+    )
+    oof_result = pd.read_pickle(
+        os.path.join(
+            save_path, 
+            'oof_predict.pkl'
+        )
+    )
+    comp_loss, log_loss_0, log_loss_1 = competition_log_loss(oof_result['Class'], oof_result['prob_'], True)
+    print(
+f"""
+OOF Score
+
+Comp loss: {comp_loss:.5f}
+Log Loss 0: {log_loss_0:.5f}
+Log Loss 1: {log_loss_1:.5f}
+"""
+    )
