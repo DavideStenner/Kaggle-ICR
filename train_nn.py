@@ -4,7 +4,8 @@ import torch
 
 from script.utils import set_seed_globally
 from script.contrastive.nn_utils import (
-    run_nn_contrastive_experiment, eval_nn_contrastive_experiment
+    run_nn_contrastive_experiment, run_nn_contrastive_prob_experiment, 
+    eval_nn_contrastive_experiment, eval_nn_contrastive_oof_score
 )
 
 if __name__ == '__main__':
@@ -38,7 +39,7 @@ if __name__ == '__main__':
         'dev_run': False,
         'n_fold': 5,
         'random_state': config_project['RANDOM_STATE'],
-        'max_epochs_pretraining': 10,
+        'max_epochs_pretraining': 50,
         'max_epochs': 100,
         #number of step. disable with -1.
         'max_steps': -1,
@@ -71,13 +72,15 @@ if __name__ == '__main__':
     feature_list = config_project['ORIGINAL_FEATURE']
     
     if config_project['TRAIN_MODEL']:
-        run_nn_contrastive_experiment(
+        run_nn_contrastive_prob_experiment(
             config_experiment=config_project, config_model=config_model, 
             feature_list=feature_list,
             target_col=config_project['TARGET_COL'], 
         )
-    for step in ['pretraining', 'training']:
+    for step in ['pretraining']:
         eval_nn_contrastive_experiment(
             config_experiment=config_project,
             step=step,
         )
+    
+    eval_nn_contrastive_oof_score(config_experiment=config_project)
