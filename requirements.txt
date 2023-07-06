@@ -4,3 +4,4 @@ seaborn
 matplotlib
 xgboost
 pytorch_lightning
+tabulate
