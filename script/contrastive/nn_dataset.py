@@ -21,7 +21,7 @@ class ICRClassificationDataset(Dataset):
             self.labels = dataset[target_col_name].values
 
     def __len__(self):
-        return len(self.labels)
+        return self.feature.shape[0]
 
     def __getitem__(self, item):
         inputs = torch.tensor(self.feature[item, :], dtype=torch.float)
@@ -105,7 +105,7 @@ class ICRContrastiveByAllSampleDataset(Dataset):
 class ICRContrastiveBySampleDataset(Dataset):
     def __init__(self, 
             data: pd.DataFrame, feature_list: list, target_col: str,
-            validation: bool, number_repetition: int = 5, num_sample: int = 10
+            validation: bool, num_sample: int = 10
         ):
         self.num_features = len(feature_list)
         self.feature = data[feature_list].values
@@ -113,7 +113,6 @@ class ICRContrastiveBySampleDataset(Dataset):
         self.number_rows = data.shape[0]
         self.index = data.index
         self.validation = validation
-        self.number_repetition = number_repetition
         self.num_sample = num_sample
 
     def find_example(
@@ -135,13 +134,13 @@ class ICRContrastiveBySampleDataset(Dataset):
         return extracted_row
 
     def __len__(self):
-        return self.number_rows*self.number_repetition
+        return self.number_rows
 
     def __getitem__(self, item):
         item = np.mod(item, self.number_rows)
 
         curr_target = self.target[item]
-        num_sample = self.num_sample if curr_target == 0 else int(4.71*self.num_sample)
+        num_sample = self.num_sample# if curr_target == 0 else int(4.71*self.num_sample)
 
         anchor = torch.tensor(self.feature[item, :], dtype=torch.float).repeat((num_sample*2, 1))
 
@@ -155,7 +154,8 @@ class ICRContrastiveBySampleDataset(Dataset):
         inputs = {
             'sample_1': anchor,
             'sample_2': contrast,
-            'original_target': torch.tensor([self.target[item]], dtype=torch.float)
+            'original_target': torch.tensor([self.target[item]], dtype=torch.float),
+            'original_target_flattened': torch.tensor([self.target[item]], dtype=torch.float).repeat((num_sample*2)),
         }
 
         label_anchor = torch.tensor(self.target[item], dtype=torch.float).repeat(num_sample*2)
@@ -168,7 +168,7 @@ class ICRContrastiveBySampleDataset(Dataset):
 
 def get_dataset(
         data: pd.DataFrame, fold_: int, validation: bool,
-        target_col: str, feature_list: list
+        target_col: str, feature_list: list, inference: bool = False
     ) -> Dataset:
     
     mask_fold = data['fold']==fold_ if validation else data['fold']!=fold_
@@ -177,7 +177,18 @@ def get_dataset(
 
     dataset = ICRClassificationDataset(
         dataset=data, feature_list=feature_list, 
-        inference=False, target_col_name=target_col
+        inference=inference, target_col_name=target_col
+    )
+    return dataset
+
+def get_inference_dataset(
+        data: pd.DataFrame,
+        target_col: str, feature_list: list
+    ) -> Dataset:
+        
+    dataset = ICRClassificationDataset(
+        dataset=data, feature_list=feature_list, 
+        inference=True, target_col_name=target_col
     )
     return dataset
 
@@ -321,6 +332,10 @@ def get_training_dataset_loader(
         data=train, fold_=fold_, validation=True, 
         target_col=target_col, feature_list=feature_list,
     )
+    valid_inference_dataset = get_dataset(
+        data=train, fold_=fold_, validation=True, 
+        target_col=target_col, feature_list=feature_list, inference=True
+    )
 
     train_loader_training = DataLoader(
         train_dataset,
@@ -339,9 +354,83 @@ def get_training_dataset_loader(
         drop_last=False,
         num_workers=config_model['num_workers']
     )
+    valid_loader_inference = DataLoader(
+        valid_inference_dataset,
+        batch_size=config_model['batch_size']*2,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers']
+    )
+
+    return (
+        train_loader_contrastive, valid_loader_contrastive,
+        train_loader_training, valid_loader_training, valid_loader_inference
+    )
+
+
+
+def get_training_prob_dataset_loader(
+        config_model: dict, train: pd.DataFrame, 
+        fold_: int, target_col: str, feature_list: list
+    ):
+    train_dataset_contrastive = get_hard_contrastive_dataset(
+        data=train, fold_=fold_, validation=False, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    valid_dataset_contrastive = get_hard_contrastive_dataset(
+        data=train, fold_=fold_, validation=True, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    
+    train_loader_contrastive = DataLoader(
+        train_dataset_contrastive,
+        batch_size=config_model['batch_size_pretraining'],
+        shuffle=True,
+        pin_memory=True,
+        drop_last=True,
+        num_workers=config_model['num_workers'],
+        collate_fn=custom_collate
+    )
+    
+    valid_loader_contrastive = DataLoader(
+        valid_dataset_contrastive,
+        batch_size=config_model['batch_size_pretraining'],
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers'],
+        collate_fn=custom_collate
+    )
+
+    train_dataset = get_dataset(
+        data=train, fold_=fold_, validation=False, 
+        target_col=target_col, feature_list=feature_list,
+    )
+    valid_dataset = get_dataset(
+        data=train, fold_=fold_, validation=True, 
+        target_col=target_col, feature_list=feature_list,
+    )
+
+    train_loader_training = DataLoader(
+        train_dataset,
+        batch_size=config_model['batch_size']*2,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers']
+    )
+    
+    valid_loader_training = DataLoader(
+        valid_dataset,
+        batch_size=config_model['batch_size']*2,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        num_workers=config_model['num_workers']
+    )
 
     return (
         train_loader_contrastive, valid_loader_contrastive,
         train_loader_training, valid_loader_training
     )
-
