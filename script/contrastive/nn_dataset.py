@@ -110,10 +110,12 @@ class ICRContrastiveBySampleDataset(Dataset):
         self.num_features = len(feature_list)
         self.feature = data[feature_list].values
         self.target = data[target_col].values
-        self.number_rows = data.shape[0]
-        self.index = data.index
+        self.number_rows = self.feature.shape[0]
+
         self.validation = validation
         self.num_sample = num_sample
+
+        self.mask_ = np.where(self.target==1)[0]
 
     def find_example(
             self, item: int, num_sample: int, 
@@ -134,13 +136,12 @@ class ICRContrastiveBySampleDataset(Dataset):
         return extracted_row
 
     def __len__(self):
-        return self.number_rows
+        return len(self.mask_)
 
     def __getitem__(self, item):
-        item = np.mod(item, self.number_rows)
-
-        curr_target = self.target[item]
-        num_sample = self.num_sample# if curr_target == 0 else int(4.71*self.num_sample)
+        # item = np.mod(item, self.number_rows)
+        item = self.mask_[item]
+        num_sample = self.num_sample
 
         anchor = torch.tensor(self.feature[item, :], dtype=torch.float).repeat((num_sample*2, 1))
 
@@ -325,7 +326,7 @@ def get_training_dataset_loader(
     )
 
     train_dataset = get_dataset(
-        data=train, fold_=fold_, validation=False, 
+        data=train[train[target_col] == 1], fold_=fold_, validation=False, 
         target_col=target_col, feature_list=feature_list,
     )
     valid_dataset = get_dataset(

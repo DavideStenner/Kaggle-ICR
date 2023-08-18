@@ -504,13 +504,13 @@ class ContrastiveClassifierProb(pl.LightningModule):
         
         def init_pretraining_setup(self) -> None:
             self.lr = self.config['lr_pretraining']
-            self.weight = 4.17
+            self.weight = 1
             self.weight_tensor = torch.tensor([self.weight-1], dtype=torch.float)
 
             if torch.cuda.is_available():
                 self.weight_tensor = torch.tensor([self.weight-1], dtype=torch.float).to('cuda')
 
-            self.criterion = nn.BCEWithLogitsLoss(reduction='none')
+            self.criterion = nn.BCEWithLogitsLoss()#reduction='none')
             self.comp_loss = competition_log_loss
 
         def __loss_step(self, 
@@ -518,8 +518,8 @@ class ContrastiveClassifierProb(pl.LightningModule):
                 inputs: torch.tensor | Dict,
             ) -> Tuple[torch.tensor, torch.tensor, torch.tensor]:
             loss = self.criterion(pred, labels)
-            rescale_weight = ((inputs['original_target_flattened'] * self.weight_tensor) + 1)
-            loss = (loss * rescale_weight).mean()
+            # rescale_weight = ((inputs['original_target_flattened'] * self.weight_tensor) + 1)
+            # loss = (loss * rescale_weight).mean()
 
             return loss, pred, labels
         
@@ -704,7 +704,7 @@ class ContrastiveClassifierProb(pl.LightningModule):
             Args:
                 pred_list (list):
                 train_labels (list): 
-                top_k (int): 
+                top_k (int): s
             """
             pred_array = []
 
@@ -726,38 +726,15 @@ class ContrastiveClassifierProb(pl.LightningModule):
             Returns:
                 torch.tensor
             """
-
-            # #find top_k for labels==0 and ==1. find the highest one and output this one (reversed if it' 0 --> 0: 1-prob; 1: prob)
-            # top_k_pred_0, _ = torch.sort(pred_[train_labels == 0], descending=True)
-            # top_k_pred_1, _ = torch.sort(pred_[train_labels == 1], descending=True)
-
-            # top_k_pred_0, top_k_pred_1 = top_k_pred_0[:top_k].mean(), top_k_pred_1[:top_k].mean()
-
-            # #reverse prediction if label is 0
-            # top_k_pred = (1-top_k_pred_0) if (top_k_pred_0 > top_k_pred_1) else top_k_pred_1
-
-            #find top_k for labels==0 and ==1. find the highest one and output this one (reversed if it' 0 --> 0: 1-prob; 1: prob)
-            # top_k_pred_0, _ = torch.sort(pred_[train_labels == 0], descending=True)
-            # top_k_pred_1, _ = torch.sort(pred_[train_labels == 1], descending=True)
-
-            # top_k_pred_0, top_k_pred_1 = top_k_pred_0[:top_k].mean(), top_k_pred_1[:top_k].mean()
-            ordered_pred, ordered_index = torch.sort(pred_, descending=True)
+            ordered_pred, _ = torch.sort(pred_, descending=True)
             
             top_k_pred = ordered_pred[:top_k]
-            top_k_labels = train_labels[ordered_index[:top_k]]
-            
-            pred_ =  (1-top_k_pred) * (1- top_k_labels) + top_k_pred * top_k_labels
-            pred_ = pred_.mean().reshape(1)
-            # pred_ =  (1-pred_) * (1- train_labels) + pred_ * train_labels
-            # top_k_pred, _ = torch.sort(pred_, descending=True)
+            # top_k_labels = train_labels[ordered_index[:top_k]]
+            pred_ = top_k_pred
 
-            # #class 1 benefit from top_k. class 0 no
-            # if top_k_pred_1 > top_k_pred_0:
+            # pred_ =  (1-top_k_pred) * (1- top_k_labels) + top_k_pred * top_k_labels
 
-            # top_k_pred = top_k_pred[-top_k:]
-
-            # top_k_pred = top_k_pred.mean().reshape(1)
-            return pred_
+            return pred_.mean().reshape(1)
         
         def retrieval_training_inspection(self, top_k_list: list = [1, 5, 10, 15, 20, 50, 100, 200, 1000]):
             metric_dict = {}
@@ -765,7 +742,7 @@ class ContrastiveClassifierProb(pl.LightningModule):
             
             #calculate one time embedding to speed up
             pred_list, train_labels, label_validation = self.contrastive_train_prediction(self.train_dataset, self.valid_dataset)
-            
+
             label_validation = label_validation.numpy()
 
             for top_k in top_k_list:
@@ -775,7 +752,6 @@ class ContrastiveClassifierProb(pl.LightningModule):
                     pred_array.numpy() if self.config['accelerator'] == 'cpu'
                     else pred_array.cpu().numpy()
                 )
-                
                 metric_score, metric_score_0, metric_score_1 = self.comp_loss(label_validation, pred_array, True)
                 binary_ce = log_loss(label_validation, pred_array)
 
