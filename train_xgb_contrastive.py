@@ -1,7 +1,7 @@
 import json
 
 from script.utils import set_seed_globally
-from script.contrastive.xgb_model import run_contrastive_xgb_experiment, evaluate_contrastive_xgb_score
+from script.contrastive_tree.xgb_model import run_contrastive_xgb_experiment, evaluate_contrastive_xgb_score
 
 if __name__ == '__main__':
     with open('config.json') as config_file:

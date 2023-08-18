@@ -13,7 +13,7 @@ from typing import Tuple
 
 from sklearn.metrics import roc_auc_score, log_loss
 
-from script.contrastive.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
+from script.contrastive_tree.augment import contrastive_pipeline, fe_new_col_name, get_retrieval_dataset
 from script.loss import competition_log_loss, calc_log_loss_weight
 
 def get_augment_dataset(

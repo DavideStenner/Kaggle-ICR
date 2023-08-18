@@ -2,7 +2,7 @@
 import json
 
 from script.utils import set_seed_globally
-from script.contrastive.lgb_model import run_lgb_contrastive_experiment, evaluate_contrastive_lgb_score
+from script.contrastive_tree.lgb_model import run_lgb_contrastive_experiment, evaluate_contrastive_lgb_score
 
 if __name__ == '__main__':
     with open('config.json') as config_file:
