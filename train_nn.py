@@ -29,7 +29,7 @@ if __name__ == '__main__':
     print('Starting Experiment', config_project['NAME'])
 
     config_model = {
-        'batch_size_pretraining': 64,
+        'batch_size_pretraining': 16,
         'batch_size': 32,
         'num_workers': 4,
         #huggingface model
